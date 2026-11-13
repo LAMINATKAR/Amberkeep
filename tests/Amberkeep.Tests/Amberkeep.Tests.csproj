@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Amberkeep.Core\Amberkeep.Core.csproj" />
+    <ProjectReference Include="..\..\src\Amberkeep.Storage\Amberkeep.Storage.csproj" />
   </ItemGroup>
 
 </Project>

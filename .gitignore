@@ -21,9 +21,9 @@ coverage*/
 sandbox/
 
 # Runtime data written next to the exe during local runs
-amberkeep.json
-history/
-state/
+/amberkeep.json
+/history/
+/state/
 
 # OS
 Thumbs.db

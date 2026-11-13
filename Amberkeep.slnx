@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Amberkeep.Core/Amberkeep.Core.csproj" />
+    <Project Path="src/Amberkeep.Storage/Amberkeep.Storage.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Amberkeep.Tests/Amberkeep.Tests.csproj" />

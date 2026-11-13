@@ -62,11 +62,38 @@ public sealed class PhysicalFileSystem : IWritableFileSystem
     });
 
     public void MoveFile(string sourcePath, string destinationPath, bool overwrite) =>
-        File.Move(sourcePath, destinationPath, overwrite);
+        WithRetry(() => File.Move(sourcePath, destinationPath, overwrite));
 
-    public void MoveDirectory(string sourcePath, string destinationPath) => Directory.Move(sourcePath, destinationPath);
+    public void MoveDirectory(string sourcePath, string destinationPath) =>
+        WithRetry(() => Directory.Move(sourcePath, destinationPath));
 
-    public void DeleteFile(string path) => File.Delete(path);
+    public void DeleteFile(string path) => WithRetry(() => File.Delete(path));
+
+    /// <summary>
+    /// Retries briefly when a file was just written and is still held by another process
+    /// (typically an antivirus scan or a search indexer). Genuine problems surface after a few attempts.
+    /// </summary>
+    private static void WithRetry(Action action)
+    {
+        int[] delaysMs = [50, 150, 400];
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                action();
+                return;
+            }
+            catch (Exception ex) when (attempt < delaysMs.Length && IsTransient(ex))
+            {
+                Thread.Sleep(delaysMs[attempt]);
+            }
+        }
+    }
+
+    // Access denied, sharing violation and lock violation are what a scanner holding the file looks like.
+    private static bool IsTransient(Exception ex) =>
+        ex is UnauthorizedAccessException
+        || (ex is IOException && (ex.HResult & 0xFFFF) is 32 or 33);
 
     public void DeleteEmptyDirectory(string path) => Directory.Delete(path, recursive: false);
 
