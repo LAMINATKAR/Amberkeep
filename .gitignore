@@ -1,0 +1,30 @@
+# Build output
+bin/
+obj/
+publish/
+artifacts/
+
+# Test results
+TestResults/
+*.trx
+coverage*/
+
+# IDE
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.user
+*.suo
+
+# Local test data (never commit real or generated test files)
+sandbox/
+
+# Runtime data written next to the exe during local runs
+amberkeep.json
+history/
+state/
+
+# OS
+Thumbs.db
+.DS_Store
