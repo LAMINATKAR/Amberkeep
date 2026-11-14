@@ -13,6 +13,7 @@ namespace Amberkeep.Storage;
     WriteIndented = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(AppConfig))]
+[JsonSerializable(typeof(ExportFile))]
 [JsonSerializable(typeof(TargetMarker))]
 [JsonSerializable(typeof(RunRecord))]
 [JsonSerializable(typeof(List<RecordedChange>))]

@@ -1,0 +1,141 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="PageBrush" Color="#F6F4F1" />
+          <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="CardBorderBrush" Color="#E6E0D7" />
+          <SolidColorBrush x:Key="SubtleBrush" Color="#F3EFE9" />
+          <SolidColorBrush x:Key="MutedTextBrush" Color="#6E6861" />
+          <SolidColorBrush x:Key="AccentSoftBrush" Color="#FBEBCB" />
+          <SolidColorBrush x:Key="OverlayBrush" Color="#66201A12" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="PageBrush" Color="#161514" />
+          <SolidColorBrush x:Key="CardBrush" Color="#211F1D" />
+          <SolidColorBrush x:Key="CardBorderBrush" Color="#36322E" />
+          <SolidColorBrush x:Key="SubtleBrush" Color="#2A2724" />
+          <SolidColorBrush x:Key="MutedTextBrush" Color="#A39C93" />
+          <SolidColorBrush x:Key="AccentSoftBrush" Color="#4A3812" />
+          <SolidColorBrush x:Key="OverlayBrush" Color="#99000000" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <FontFamily x:Key="MonoFont">Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace</FontFamily>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <!-- Typography -->
+  <Style Selector="TextBlock.h1">
+    <Setter Property="FontSize" Value="24" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.h2">
+    <Setter Property="FontSize" Value="17" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.section">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Margin" Value="0,0,0,10" />
+  </Style>
+  <Style Selector="TextBlock.muted, SelectableTextBlock.muted">
+    <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+  </Style>
+  <Style Selector="TextBlock.small">
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="TextBlock.path">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+    <Setter Property="TextTrimming" Value="PrefixCharacterEllipsis" />
+  </Style>
+
+  <!-- Surfaces -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{DynamicResource CardBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="20" />
+  </Style>
+  <Style Selector="Border.row">
+    <Setter Property="Background" Value="{DynamicResource SubtleBrush}" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="14,10" />
+  </Style>
+  <Style Selector="Border.chip">
+    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="8,2" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.chip > TextBlock">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="Border.banner">
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="14,10" />
+    <Setter Property="BorderThickness" Value="4,0,0,0" />
+    <Setter Property="Background" Value="{DynamicResource CardBrush}" />
+  </Style>
+
+  <!-- Buttons -->
+  <Style Selector="Button">
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="14,7" />
+  </Style>
+  <Style Selector="Button.subtle">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="Button.danger">
+    <Setter Property="Foreground" Value="#D2453F" />
+  </Style>
+  <Style Selector="Button.icon">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="20" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <!-- Filter chips in the diff -->
+  <Style Selector="ToggleButton.filter">
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="10,4" />
+    <Setter Property="Margin" Value="0,0,6,6" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Background" Value="{DynamicResource CardBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="ToggleButton.filter:checked /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.filter:unchecked">
+    <Setter Property="Opacity" Value="0.55" />
+  </Style>
+
+  <!-- Diff rows: no selection look, compact -->
+  <Style Selector="ListBox.tree ListBoxItem">
+    <Setter Property="Padding" Value="6,2" />
+    <Setter Property="MinHeight" Value="30" />
+  </Style>
+  <Style Selector="ListBox.tree ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SubtleBrush}" />
+  </Style>
+
+  <Style Selector="TextBox.mono">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+</Styles>

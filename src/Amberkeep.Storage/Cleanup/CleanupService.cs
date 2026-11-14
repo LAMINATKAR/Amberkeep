@@ -128,6 +128,19 @@ public sealed class CleanupService(
         return report;
     }
 
+    /// <summary>
+    /// Removes the marker and/or archive of one target folder without changing the configuration
+    /// (for callers that save the configuration themselves, e.g. the job editor).
+    /// </summary>
+    public CleanupReport CleanTargetFolder(JobConfig job, TargetConfig target, bool removeMarker, bool removeArchive)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        ArgumentNullException.ThrowIfNull(target);
+        var report = new CleanupReport();
+        CleanTarget(job, target, removeMarker, removeArchive, report);
+        return report;
+    }
+
     private void CleanTarget(JobConfig job, TargetConfig target, bool removeMarker, bool removeArchive, CleanupReport report)
     {
         if (!removeMarker && !removeArchive)

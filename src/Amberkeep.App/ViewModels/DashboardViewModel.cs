@@ -1,0 +1,311 @@
+using System.Collections.ObjectModel;
+using Amberkeep.App.Services;
+using Amberkeep.Core.Execution;
+using Amberkeep.Storage.Config;
+using Amberkeep.Storage.History;
+using Amberkeep.Storage.Targets;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace Amberkeep.App.ViewModels;
+
+/// <summary>Start page: all backup jobs with the state of their targets (SPEC 6.1).</summary>
+public sealed partial class DashboardViewModel(IShell shell) : ObservableObject
+{
+    public ObservableCollection<JobCardViewModel> Jobs { get; } = [];
+
+    [ObservableProperty]
+    private bool _hasJobs;
+
+    [ObservableProperty]
+    private bool _isRefreshing;
+
+    [ObservableProperty]
+    private string? _banner = shell.Services.StartupMessage;
+
+    public bool BannerIsError => shell.Services.StartupMessageIsError;
+
+    public bool IsReadOnly => shell.Services.IsReadOnly;
+
+    public bool CanEdit => !IsReadOnly;
+
+    /// <summary>Rebuilds the cards and checks every target (in the background).</summary>
+    public async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            var config = shell.Services.Config;
+            var cards = await Task.Run(() =>
+            {
+                var history = shell.Services.History.List();
+                return config.Jobs.Select(job => new JobCardViewModel(shell, this, job, history)).ToList();
+            });
+            Jobs.Clear();
+            foreach (var card in cards)
+            {
+                Jobs.Add(card);
+            }
+
+            HasJobs = Jobs.Count > 0;
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
+    }
+
+    [RelayCommand]
+    private Task ReloadAsync() => RefreshAsync();
+
+    [RelayCommand]
+    private void NewJob() => shell.Show(new JobEditorViewModel(shell, null));
+
+    [RelayCommand]
+    private void OneTimeRun() => shell.Show(new OneTimeRunViewModel(shell));
+
+    [RelayCommand]
+    private Task ShowHistoryAsync()
+    {
+        var history = new HistoryViewModel(shell);
+        shell.Show(history);
+        return history.LoadAsync();
+    }
+
+    [RelayCommand]
+    private void ShowSettings() => shell.Show(new SettingsViewModel(shell));
+
+    internal Task ShowArchiveAsync(JobConfig job, TargetConfig target, string path)
+    {
+        var archive = new ArchiveViewModel(shell, job, target, path);
+        shell.Show(archive);
+        return archive.LoadAsync();
+    }
+
+    [RelayCommand]
+    private void DismissBanner() => Banner = null;
+
+    /// <summary>Runs every connected target of every job, one after another.</summary>
+    [RelayCommand]
+    private async Task RunAllAsync()
+    {
+        var queue = new Queue<(JobConfig Job, TargetConfig Target)>(
+            Jobs.SelectMany(card => card.Targets.Where(t => t.IsConnected).Select(t => (card.Job, t.Target))));
+        if (queue.Count == 0)
+        {
+            await shell.Dialogs.ShowMessageAsync("Nothing to run", "No backup target is connected.");
+            return;
+        }
+
+        await RunNextAsync();
+
+        async Task RunNextAsync()
+        {
+            if (!queue.TryDequeue(out var next))
+            {
+                shell.ShowDashboard();
+                return;
+            }
+
+            await new JobFlow(shell).StartAsync(next.Job, next.Target, runWithoutReview: true, onFinished: () => _ = RunNextAsync());
+        }
+    }
+
+    internal async Task DeleteJobAsync(JobConfig job)
+    {
+        var answers = await shell.Dialogs.ConfirmWithOptionsAsync(
+            $"Delete '{job.Name}'?",
+            "The backup is removed from Amberkeep together with its history. Backed-up files stay where they are.",
+            "Delete",
+            [new DialogOption("Also remove Amberkeep files (marker) from connected targets", true),
+             new DialogOption("Also delete archived old versions on connected targets")],
+            destructive: true);
+        if (answers is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var (config, report) = shell.Services.Cleanup.DeleteJob(shell.Services.Config, job.Id, answers[0], answers[0] && answers[1]);
+            shell.Services.Accept(config);
+            await ShowReportAsync(report);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            await shell.Dialogs.ShowMessageAsync("The backup could not be deleted", ex.Message);
+        }
+
+        await RefreshAsync();
+    }
+
+    internal async Task LocateAsync(JobConfig job, TargetConfig target)
+    {
+        var folder = await shell.Dialogs.PickFolderAsync($"Where is '{target.Name}'?");
+        if (folder is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = shell.Services.Registry.Relink(shell.Services.Config, job, target, folder, confirmed: false);
+            if (result.ConfirmationNeeded is { } question)
+            {
+                if (!await shell.Dialogs.ConfirmAsync("Use this folder?", question, "Use it"))
+                {
+                    return;
+                }
+
+                result = shell.Services.Registry.Relink(shell.Services.Config, job, target, folder, confirmed: true);
+            }
+
+            shell.Services.Save(shell.Services.Config.WithJob(job.WithTarget(result.Target!)));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            await shell.Dialogs.ShowMessageAsync("Cannot use this folder", ex.Message);
+        }
+
+        await RefreshAsync();
+    }
+
+    internal async Task ShowReportAsync(Amberkeep.Storage.Cleanup.CleanupReport report)
+    {
+        var lines = report.NotCleaned.Concat(report.Errors).ToList();
+        if (lines.Count > 0)
+        {
+            await shell.Dialogs.ShowMessageAsync("Some files could not be removed", string.Join(Environment.NewLine, lines));
+        }
+    }
+}
+
+public sealed partial class JobCardViewModel : ObservableObject
+{
+    private readonly IShell _shell;
+    private readonly DashboardViewModel _dashboard;
+
+    public JobCardViewModel(IShell shell, DashboardViewModel dashboard, JobConfig job, IReadOnlyList<RunRecord> history)
+    {
+        _shell = shell;
+        _dashboard = dashboard;
+        Job = job;
+        Targets = new ObservableCollection<TargetRowViewModel>(job.Targets.Select(t => new TargetRowViewModel(shell, dashboard, job, t, history)));
+    }
+
+    public JobConfig Job { get; }
+
+    public string Name => Job.Name;
+
+    public string SourcePath => Job.SourcePath;
+
+    public ObservableCollection<TargetRowViewModel> Targets { get; }
+
+    public bool HasTargets => Targets.Count > 0;
+
+    public bool ArchiveEnabled => Job.Archive.Enabled;
+
+    public bool RequiresApproval => Job.RequireApproval;
+
+    public bool CanEdit => !_shell.Services.IsReadOnly;
+
+    [RelayCommand]
+    private void Edit() => _shell.Show(new JobEditorViewModel(_shell, Job));
+
+    [RelayCommand]
+    private Task DeleteAsync() => _dashboard.DeleteJobAsync(Job);
+}
+
+public enum TargetDisplayState
+{
+    Connected,
+    NotConnected,
+    Unverified,
+}
+
+public sealed partial class TargetRowViewModel : ObservableObject
+{
+    private readonly IShell _shell;
+    private readonly DashboardViewModel _dashboard;
+
+    /// <summary>Checks the target right away; call off the UI thread.</summary>
+    public TargetRowViewModel(IShell shell, DashboardViewModel dashboard, JobConfig job, TargetConfig target, IReadOnlyList<RunRecord> history)
+    {
+        _shell = shell;
+        _dashboard = dashboard;
+        Job = job;
+        Target = target;
+
+        var services = shell.Services;
+        var status = services.Locator.Locate(target);
+        State = status.State switch
+        {
+            TargetState.Connected => TargetDisplayState.Connected,
+            TargetState.Unverified => TargetDisplayState.Unverified,
+            _ => TargetDisplayState.NotConnected,
+        };
+        Path = status.Path ?? target.LastKnownPath;
+        StateText = State switch
+        {
+            TargetDisplayState.Connected => "Connected",
+            TargetDisplayState.Unverified => "Not verified",
+            _ => "Not connected",
+        };
+        Reason = status.Reason;
+
+        if (status.IsConnected && services.FileSystem.GetAvailableFreeSpace(Path) is { } free)
+        {
+            FreeSpaceText = $"{Format.Bytes(free)} free";
+        }
+
+        HasArchive = status.IsConnected
+                     && services.FileSystem.DirectoryExists(Core.Execution.ArchiveCleaner.ArchiveRoot(Path));
+
+        var last = history.FirstOrDefault(r => r.JobId == job.Id && r.TargetId == target.Id);
+        LastRunText = last is null
+            ? "Never backed up"
+            : $"Last backup {Format.When(last.StartedUtc, services.Time.GetUtcNow())} – {Format.Outcome(last.Outcome).ToLowerInvariant()}";
+        LastRunFailed = last is { Outcome: not ExecutionOutcome.Completed };
+    }
+
+    public JobConfig Job { get; }
+
+    public TargetConfig Target { get; }
+
+    public string Name => Target.Name;
+
+    public string Path { get; }
+
+    public TargetDisplayState State { get; }
+
+    public string StateText { get; }
+
+    public string? Reason { get; }
+
+    public bool HasReason => Reason is not null;
+
+    public string? FreeSpaceText { get; }
+
+    public string LastRunText { get; }
+
+    public bool LastRunFailed { get; }
+
+    public bool IsConnected => State == TargetDisplayState.Connected;
+
+    public bool CanLocate => !IsConnected && !_shell.Services.IsReadOnly;
+
+    /// <summary>The target is connected and has archived files to browse.</summary>
+    public bool HasArchive { get; }
+
+    [RelayCommand]
+    private Task OpenArchiveAsync() => _dashboard.ShowArchiveAsync(Job, Target, Path);
+
+    [RelayCommand(CanExecute = nameof(IsConnected))]
+    private Task AnalyzeAsync() => new JobFlow(_shell).StartAsync(Job, Target, runWithoutReview: false);
+
+    [RelayCommand(CanExecute = nameof(IsConnected))]
+    private Task RunAsync() => new JobFlow(_shell).StartAsync(Job, Target, runWithoutReview: true);
+
+    [RelayCommand]
+    private Task LocateAsync() => _dashboard.LocateAsync(Job, Target);
+}

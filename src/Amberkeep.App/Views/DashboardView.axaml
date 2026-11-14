@@ -1,0 +1,130 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Amberkeep.App.ViewModels"
+             xmlns:views="using:Amberkeep.App.Views"
+             xmlns:app="using:Amberkeep.App"
+             x:Class="Amberkeep.App.Views.DashboardView"
+             x:DataType="vm:DashboardViewModel">
+  <DockPanel Margin="28,22,28,0">
+
+    <!-- Header -->
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,18">
+      <views:LogoView VerticalAlignment="Center" />
+      <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+        <TextBlock Classes="h1" Text="Amberkeep" />
+        <TextBlock Classes="muted" Text="Mirrors of your folders, kept safe on other disks" />
+      </StackPanel>
+      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <Button Classes="subtle" Content="Refresh" Command="{Binding ReloadCommand}" />
+        <Button Classes="subtle" Content="History" Command="{Binding ShowHistoryCommand}" />
+        <Button Classes="subtle" Content="Settings" Command="{Binding ShowSettingsCommand}" />
+        <Button Content="One-time run…" Command="{Binding OneTimeRunCommand}" />
+        <Button Content="Run all" Command="{Binding RunAllCommand}" IsEnabled="{Binding HasJobs}" />
+        <Button Classes="accent" Content="New backup" Command="{Binding NewJobCommand}" IsEnabled="{Binding CanEdit}" />
+      </StackPanel>
+    </Grid>
+
+    <!-- Start-up message -->
+    <Border DockPanel.Dock="Top" Classes="banner" Margin="0,0,0,14"
+            IsVisible="{Binding Banner, Converter={x:Static ObjectConverters.IsNotNull}}"
+            BorderBrush="{x:Static app:Converters.Amber}">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="{Binding Banner}" TextWrapping="Wrap" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Classes="subtle" Content="Dismiss" Command="{Binding DismissBannerCommand}"
+                IsVisible="{Binding !BannerIsError}" />
+      </Grid>
+    </Border>
+
+    <ScrollViewer>
+      <StackPanel Spacing="16" Margin="0,0,0,28">
+
+        <!-- Empty state -->
+        <Border Classes="card" IsVisible="{Binding !HasJobs}" Padding="40" HorizontalAlignment="Stretch">
+          <StackPanel HorizontalAlignment="Center" Spacing="10">
+            <views:LogoView Width="64" Height="64" />
+            <TextBlock Classes="h2" Text="No backups yet" HorizontalAlignment="Center" />
+            <TextBlock Classes="muted" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="460"
+                       Text="A backup mirrors one folder to one or more disks. You see every change before it is made." />
+            <Button Classes="accent" Content="Create your first backup" HorizontalAlignment="Center" Margin="0,8,0,0"
+                    Command="{Binding NewJobCommand}" IsEnabled="{Binding CanEdit}" />
+          </StackPanel>
+        </Border>
+
+        <!-- Jobs -->
+        <ItemsControl ItemsSource="{Binding Jobs}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Spacing="16" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:JobCardViewModel">
+              <Border Classes="card">
+                <StackPanel Spacing="12">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="4">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="h2" Text="{Binding Name}" VerticalAlignment="Center" />
+                        <Border Classes="chip" IsVisible="{Binding ArchiveEnabled}">
+                          <TextBlock Text="Archive" />
+                        </Border>
+                        <Border Classes="chip" IsVisible="{Binding RequiresApproval}">
+                          <TextBlock Text="Review before run" />
+                        </Border>
+                      </StackPanel>
+                      <TextBlock Classes="path" Text="{Binding SourcePath}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
+                      <Button Classes="subtle" Content="Edit" Command="{Binding EditCommand}" IsEnabled="{Binding CanEdit}" />
+                      <Button Classes="subtle danger" Content="Delete" Command="{Binding DeleteCommand}" IsEnabled="{Binding CanEdit}" />
+                    </StackPanel>
+                  </Grid>
+
+                  <TextBlock Classes="muted" IsVisible="{Binding !HasTargets}"
+                             Text="No targets yet – edit the backup and add a disk to back up to." />
+
+                  <ItemsControl ItemsSource="{Binding Targets}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <StackPanel Spacing="8" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:TargetRowViewModel">
+                        <Border Classes="row">
+                          <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                            <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,12,0"
+                                     Fill="{Binding State, Converter={x:Static app:Converters.TargetStateBrush}}" />
+                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                              <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
+                                <TextBlock Classes="muted small" Text="{Binding StateText}" VerticalAlignment="Center" />
+                              </StackPanel>
+                              <TextBlock Classes="path" Text="{Binding Path}" />
+                              <TextBlock Classes="small" TextWrapping="Wrap" Text="{Binding Reason}" IsVisible="{Binding HasReason}"
+                                         Foreground="{x:Static app:Converters.Amber}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Spacing="2" Margin="16,0" VerticalAlignment="Center">
+                              <TextBlock Classes="muted small" Text="{Binding LastRunText}" HorizontalAlignment="Right" />
+                              <TextBlock Classes="muted small" Text="{Binding FreeSpaceText}" HorizontalAlignment="Right" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                              <Button Content="Locate…" Command="{Binding LocateCommand}" IsVisible="{Binding CanLocate}" />
+                              <Button Classes="subtle" Content="Archive" Command="{Binding OpenArchiveCommand}" IsVisible="{Binding HasArchive}" />
+                              <Button Content="Analyze" Command="{Binding AnalyzeCommand}" IsVisible="{Binding IsConnected}" />
+                              <Button Classes="accent" Content="Run" Command="{Binding RunCommand}" IsVisible="{Binding IsConnected}" />
+                            </StackPanel>
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

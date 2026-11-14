@@ -32,6 +32,15 @@ public static partial class ArchiveCleaner
             : null;
     }
 
+    /// <summary>Archive folder of a target.</summary>
+    public static string ArchiveRoot(string targetPath) =>
+        Path.Join(targetPath, Scanning.Scanner.ProgramFolderName, "archive");
+
+    /// <summary>Deletes snapshots in the archive of <paramref name="targetPath"/> older than <paramref name="cutoff"/>.</summary>
+    /// <returns>Names of the deleted snapshots.</returns>
+    public static IReadOnlyList<string> PurgeSnapshots(IWritableFileSystem fileSystem, string targetPath, DateTimeOffset cutoff) =>
+        Purge(fileSystem, new WriteGuard(null, ArchiveRoot(targetPath)), ArchiveRoot(targetPath), cutoff, keep: null);
+
     /// <summary>Deletes snapshots older than <paramref name="cutoff"/>. Folders with other names are left alone.</summary>
     /// <returns>Names of the deleted snapshots.</returns>
     internal static List<string> Purge(

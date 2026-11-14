@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Amberkeep.App.ViewModels"
+             x:Class="Amberkeep.App.Views.ConfirmDialogView"
+             x:DataType="vm:ConfirmDialogViewModel">
+  <Border Classes="card" Width="500" Padding="24" BoxShadow="0 12 40 0 #40000000">
+    <StackPanel Spacing="14">
+      <TextBlock Classes="h2" Text="{Binding Title}" TextWrapping="Wrap" />
+      <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+      <ItemsControl ItemsSource="{Binding Options}" IsVisible="{Binding HasOptions}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:DialogOptionViewModel">
+            <CheckBox IsChecked="{Binding IsChecked}">
+              <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+            </CheckBox>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,6,0,0">
+        <Button Content="{Binding CancelText}" Command="{Binding CancelCommand}" IsVisible="{Binding HasCancel}" />
+        <Button Classes="accent" Content="{Binding ConfirmText}" Command="{Binding ConfirmCommand}" IsVisible="{Binding !IsDestructive}" />
+        <Button Classes="danger" Content="{Binding ConfirmText}" Command="{Binding ConfirmCommand}" IsVisible="{Binding IsDestructive}" />
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</UserControl>

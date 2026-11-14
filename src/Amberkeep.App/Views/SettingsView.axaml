@@ -1,0 +1,93 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Amberkeep.App.ViewModels"
+             xmlns:views="using:Amberkeep.App.Views"
+             x:Class="Amberkeep.App.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="28,22,28,28" Spacing="16" MaxWidth="860">
+      <Grid ColumnDefinitions="Auto,*">
+        <Button Classes="subtle" Content="← Back" Command="{Binding BackCommand}" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" Classes="h1" Text="Settings" Margin="12,0,0,0" VerticalAlignment="Center" />
+      </Grid>
+
+      <TextBlock Classes="muted" Text="{Binding Status}" TextWrapping="Wrap"
+                 IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+      <!-- History -->
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="section" Text="History" Margin="0" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="Keep the last" VerticalAlignment="Center" />
+            <NumericUpDown Value="{Binding HistoryLimit}" Minimum="1" Maximum="10000" Increment="10" FormatString="0" Width="130"
+                           IsEnabled="{Binding CanEdit}" />
+            <TextBlock Text="runs" VerticalAlignment="Center" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- Data -->
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="section" Text="Where Amberkeep keeps its data" Margin="0" />
+          <TextBlock Classes="muted small" TextWrapping="Wrap"
+                     Text="Everything is stored next to the program: amberkeep.json (your backups and settings) and the history folder. Nothing is written to the system or to the folders you back up." />
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="path" Text="{Binding DataFolder}" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="Open folder" Command="{Binding OpenDataFolderCommand}" />
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- Export / import -->
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="section" Text="Move backups to another computer" Margin="0" />
+          <TextBlock Classes="muted small" TextWrapping="Wrap"
+                     Text="Export saves the selected backups to a file. Import them on the other computer; the backup disks are recognized there by their markers." />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Export…" Command="{Binding ExportCommand}" />
+            <Button Content="Import…" Command="{Binding ImportCommand}" IsEnabled="{Binding CanEdit}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- Clean up -->
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="section" Text="Remove Amberkeep" Margin="0" />
+          <TextBlock Classes="muted small" TextWrapping="Wrap"
+                     Text="Deletes the settings, backups and history next to the program, optionally also the markers and archives on connected disks, and closes Amberkeep. Your backed-up files are never deleted." />
+          <Button Classes="danger" Content="Clean up everything…" Command="{Binding CleanUpEverythingCommand}" HorizontalAlignment="Left"
+                  IsEnabled="{Binding CanEdit}" />
+        </StackPanel>
+      </Border>
+
+      <!-- About -->
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <views:LogoView Width="36" Height="36" />
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock Classes="h2" Text="Amberkeep" />
+              <TextBlock Classes="muted small" Text="{Binding Version, StringFormat='Version {0}'}" />
+            </StackPanel>
+          </StackPanel>
+          <TextBlock Classes="muted small" Text="Built with open-source software:" />
+          <ItemsControl ItemsSource="{Binding Licenses}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:LicenseInfo">
+                <Grid ColumnDefinitions="220,200,*" Margin="0,2">
+                  <TextBlock Text="{Binding Component}" />
+                  <TextBlock Grid.Column="1" Classes="muted" Text="{Binding License}" />
+                  <SelectableTextBlock Grid.Column="2" Classes="muted" FontSize="12" Text="{Binding Url}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

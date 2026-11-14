@@ -1,0 +1,132 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Amberkeep.App.ViewModels"
+             xmlns:app="using:Amberkeep.App"
+             x:Class="Amberkeep.App.Views.DiffView"
+             x:DataType="vm:DiffViewModel">
+  <DockPanel Margin="28,22,28,20">
+
+    <!-- Header -->
+    <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,14">
+      <TextBlock Classes="h1" Text="Review changes" />
+      <TextBlock Classes="muted" Text="{Binding Title}" />
+      <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" Margin="0,6,0,0">
+        <TextBlock Classes="muted small" Text="From" Margin="0,0,12,0" />
+        <TextBlock Grid.Column="1" Classes="path" Text="{Binding SourcePath}" />
+        <TextBlock Grid.Row="1" Classes="muted small" Text="To" Margin="0,0,12,0" />
+        <TextBlock Grid.Row="1" Grid.Column="1" Classes="path" Text="{Binding TargetPath}" />
+      </Grid>
+    </StackPanel>
+
+    <!-- Safety banners -->
+    <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Banners}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:BannerViewModel">
+          <Border Classes="banner" Margin="0,0,0,8" BorderBrush="{Binding Kind, Converter={x:Static app:Converters.BannerBrush}}">
+            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <Border DockPanel.Dock="Top" Classes="banner" Margin="0,0,0,8" BorderBrush="{x:Static app:Converters.Amber}"
+            IsVisible="{Binding MassRemovalWarning, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <StackPanel Spacing="2">
+        <TextBlock FontWeight="SemiBold" Text="Many files would be removed from the target" />
+        <TextBlock Text="{Binding MassRemovalWarning}" TextWrapping="Wrap" />
+        <TextBlock Classes="muted small" Text="Check the list carefully. A missing or wrong source folder can look like this." />
+      </StackPanel>
+    </Border>
+
+    <!-- Footer -->
+    <Border DockPanel.Dock="Bottom" Classes="card" Padding="16,12" Margin="0,12,0,0">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="{Binding SelectionText}" VerticalAlignment="Center" TextWrapping="Wrap" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+          <Button Content="Cancel" Command="{Binding CancelCommand}" />
+          <Button Classes="accent" Content="Approve &amp; run" Command="{Binding RunCommand}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Problems -->
+    <Expander DockPanel.Dock="Bottom" Margin="0,10,0,0" IsVisible="{Binding HasProblems}" HorizontalAlignment="Stretch">
+      <Expander.Header>
+        <TextBlock Text="{Binding ProblemsTitle}" Foreground="{x:Static app:Converters.Amber}" />
+      </Expander.Header>
+      <ScrollViewer MaxHeight="140">
+        <ItemsControl ItemsSource="{Binding Problems}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Classes="small" Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Expander>
+
+    <!-- Toolbar -->
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,6,0,8" IsVisible="{Binding HasChanges}">
+      <ItemsControl ItemsSource="{Binding Filters}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:CategoryFilterViewModel">
+            <ToggleButton Classes="filter" IsChecked="{Binding IsEnabled}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                         Fill="{Binding Category, Converter={x:Static app:Converters.CategoryBrush}}" />
+                <TextBlock Text="{Binding Label}" />
+              </StackPanel>
+            </ToggleButton>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
+        <TextBox Width="220" PlaceholderText="Search names" Text="{Binding SearchText}" />
+        <Button Classes="subtle" Content="Expand all" Command="{Binding ExpandAllCommand}" />
+        <Button Classes="subtle" Content="Collapse all" Command="{Binding CollapseAllCommand}" />
+        <Button Classes="subtle" Content="Reset selection" Command="{Binding SelectDefaultsCommand}" />
+      </StackPanel>
+    </Grid>
+
+    <!-- Tree -->
+    <Grid>
+      <Border Classes="card" Padding="6" IsVisible="{Binding HasChanges}">
+        <ListBox Classes="tree" ItemsSource="{Binding Rows}" Background="Transparent">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:DiffNodeViewModel">
+              <!-- Fixed-width columns for the chevron and the dot keep names of files and folders aligned. -->
+              <Grid ColumnDefinitions="20,Auto,16,*,Auto,Auto" Margin="{Binding Indent, Converter={x:Static app:Converters.Indent}}">
+                <Button Classes="icon" Command="{Binding ToggleExpandedCommand}" IsVisible="{Binding HasChildren}"
+                        Content="{Binding IsExpanded, Converter={x:Static app:Converters.Chevron}}" />
+                <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" IsEnabled="{Binding IsCheckable}"
+                          MinWidth="0" Margin="4,0,6,0" Padding="0" VerticalAlignment="Center" />
+                <Ellipse Grid.Column="2" Width="8" Height="8" HorizontalAlignment="Left" VerticalAlignment="Center"
+                         IsVisible="{Binding Category, Converter={x:Static ObjectConverters.IsNotNull}}"
+                         Fill="{Binding Category, Converter={x:Static app:Converters.CategoryBrush}}" />
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding Name}" />
+                  <TextBlock Classes="muted small" Text="{Binding Detail}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <TextBlock Grid.Column="4" Classes="small" Text="{Binding CategoryText}" Margin="12,0" VerticalAlignment="Center"
+                           Foreground="{Binding Category, Converter={x:Static app:Converters.CategoryBrush}}" />
+                <TextBlock Grid.Column="5" Classes="muted small" Text="{Binding SizeText}" MinWidth="70"
+                           TextAlignment="Right" VerticalAlignment="Center" />
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Border>
+
+      <Border Classes="card" Padding="40" IsVisible="{Binding !HasChanges}" VerticalAlignment="Top">
+        <StackPanel HorizontalAlignment="Center" Spacing="6">
+          <TextBlock Classes="h2" Text="Everything is up to date" HorizontalAlignment="Center" />
+          <TextBlock Classes="muted" Text="{Binding UnchangedText}" HorizontalAlignment="Center" />
+        </StackPanel>
+      </Border>
+    </Grid>
+  </DockPanel>
+</UserControl>

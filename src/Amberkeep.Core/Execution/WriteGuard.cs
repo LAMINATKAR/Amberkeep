@@ -9,13 +9,15 @@ namespace Amberkeep.Core.Execution;
 internal sealed class WriteGuard
 {
     private readonly string _targetRoot;
-    private readonly string _sourceRoot;
+    private readonly string? _sourceRoot;
     private readonly StringComparison _comparison;
 
-    public WriteGuard(string sourceRoot, string targetRoot)
+    /// <param name="sourceRoot">Source folder that must never be written; null when there is none (archive maintenance).</param>
+    /// <param name="targetRoot">The only folder that may be written.</param>
+    public WriteGuard(string? sourceRoot, string targetRoot)
     {
         _comparison = CaseSensitivity.Auto.IsCaseSensitive() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-        _sourceRoot = WithSeparator(sourceRoot);
+        _sourceRoot = sourceRoot is null ? null : WithSeparator(sourceRoot);
         _targetRoot = WithSeparator(targetRoot);
     }
 
@@ -27,7 +29,7 @@ internal sealed class WriteGuard
             throw new InvalidOperationException($"Refusing to write outside the target folder: {path}");
         }
 
-        if (full.StartsWith(_sourceRoot, _comparison))
+        if (_sourceRoot is not null && full.StartsWith(_sourceRoot, _comparison))
         {
             throw new InvalidOperationException($"Refusing to write into the source folder: {path}");
         }

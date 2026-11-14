@@ -103,6 +103,13 @@ public sealed class TargetRegistry(IWritableFileSystem fileSystem, IVolumeProvid
         return new RelinkResult(WithLocation(target, full), null);
     }
 
+    /// <summary>The marker found in a folder, if any (to ask the user before taking a folder over).</summary>
+    public (MarkerState State, string? JobName) ReadMarker(string folder)
+    {
+        var (state, marker) = MarkerFile.Read(fileSystem, Path.GetFullPath(folder));
+        return (state, marker?.JobName);
+    }
+
     /// <summary>Records a new location of the target (after it was found elsewhere or relinked).</summary>
     public TargetConfig WithLocation(TargetConfig target, string fullPath) => target with
     {

@@ -1,0 +1,177 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Amberkeep.App.ViewModels"
+             xmlns:app="using:Amberkeep.App"
+             x:Class="Amberkeep.App.Views.JobEditorView"
+             x:DataType="vm:JobEditorViewModel">
+  <DockPanel>
+    <!-- Footer -->
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource CardBorderBrush}"
+            BorderThickness="0,1,0,0" Padding="28,12">
+      <Grid ColumnDefinitions="*,Auto">
+        <ItemsControl ItemsSource="{Binding Errors}" VerticalAlignment="Center">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Classes="small" Text="{Binding}" TextWrapping="Wrap" Foreground="{x:Static app:Converters.Red}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0">
+          <Button Content="Cancel" Command="{Binding CancelCommand}" />
+          <Button Classes="accent" Content="Save" Command="{Binding SaveCommand}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <ScrollViewer>
+      <StackPanel Margin="28,22,28,28" Spacing="16" MaxWidth="860">
+        <TextBlock Classes="h1" Text="{Binding Title}" />
+
+        <!-- Source -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="section" Text="What to back up" />
+            <TextBlock Classes="muted small" Text="Name" />
+            <TextBox Text="{Binding Name}" PlaceholderText="e.g. Photos" />
+            <TextBlock Classes="muted small" Text="Folder" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Classes="mono" Text="{Binding SourcePath}" PlaceholderText="Folder to back up" />
+              <Button Grid.Column="1" Content="Browse…" Margin="8,0,0,0" Command="{Binding BrowseSourceCommand}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <!-- Targets -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel>
+                <TextBlock Classes="section" Text="Where to back up" Margin="0" />
+                <TextBlock Classes="muted small" TextWrapping="Wrap"
+                           Text="Each target gets an exact copy of the folder. Amberkeep recognizes the disk by a small marker, even if its drive letter changes." />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Add target…" Command="{Binding AddTargetCommand}" VerticalAlignment="Top" />
+            </Grid>
+            <TextBlock Classes="muted" Text="No targets yet." IsVisible="{Binding HasNoTargets}" />
+            <ItemsControl ItemsSource="{Binding Targets}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Spacing="6" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:EditorTargetViewModel">
+                  <Border Classes="row">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <StackPanel Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
+                          <TextBlock Classes="muted small" Text="{Binding Note}" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Classes="path" Text="{Binding Path}" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Classes="subtle danger" Content="Remove"
+                              Command="{Binding $parent[ItemsControl].((vm:JobEditorViewModel)DataContext).RemoveTargetCommand}"
+                              CommandParameter="{Binding}" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <!-- Comparison -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="section" Text="How to compare" />
+            <CheckBox IsChecked="{Binding CompareContent}">
+              <StackPanel>
+                <TextBlock Text="Compare file contents" />
+                <TextBlock Classes="muted small" Text="Exact but slower. By default files are compared by size and time." />
+              </StackPanel>
+            </CheckBox>
+            <CheckBox IsChecked="{Binding IgnoreOneHourShift}">
+              <StackPanel>
+                <TextBlock Text="Ignore one-hour time shifts on FAT disks" />
+                <TextBlock Classes="muted small" Text="FAT32 stores local time, so daylight saving changes would otherwise re-copy everything." />
+              </StackPanel>
+            </CheckBox>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="File names" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{Binding CaseChoices}" SelectedItem="{Binding CaseSensitivity}" MinWidth="280">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CaseChoice">
+                    <TextBlock Text="{Binding Label}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- Exclusions -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="section" Text="Exclusions" Margin="0" />
+              <Button Grid.Column="1" Classes="subtle" Content="Reset to defaults" Command="{Binding ResetExclusionsCommand}" />
+            </Grid>
+            <TextBlock Classes="muted small" TextWrapping="Wrap"
+                       Text="One pattern per line. node_modules/ = folder anywhere, *.tmp = files anywhere, /build/ = only at the top. Excluded items are neither copied nor removed on the target." />
+            <TextBox Classes="mono" Text="{Binding ExclusionsText}" AcceptsReturn="True" TextWrapping="NoWrap" Height="150" />
+          </StackPanel>
+        </Border>
+
+        <!-- Safety -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="section" Text="Safety" />
+            <CheckBox IsChecked="{Binding RequireApproval}">
+              <StackPanel>
+                <TextBlock Text="Review changes before every run" />
+                <TextBlock Classes="muted small" Text="Shows the list of changes and waits for your approval." />
+              </StackPanel>
+            </CheckBox>
+            <CheckBox IsChecked="{Binding GuardEnabled}">
+              <TextBlock Text="Ask before removing many files" />
+            </CheckBox>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0" IsEnabled="{Binding GuardEnabled}">
+              <TextBlock Text="when more than" VerticalAlignment="Center" />
+              <NumericUpDown Value="{Binding GuardPercent}" Minimum="0" Maximum="100" Increment="5" FormatString="0" Width="110" />
+              <TextBlock Text="% of the files and at least" VerticalAlignment="Center" />
+              <NumericUpDown Value="{Binding GuardMinCount}" Minimum="0" Maximum="1000000" Increment="10" FormatString="0" Width="130" />
+              <TextBlock Text="files would be removed" VerticalAlignment="Center" />
+            </StackPanel>
+            <CheckBox IsChecked="{Binding VerifyCopies}">
+              <StackPanel>
+                <TextBlock Text="Verify every copied file" />
+                <TextBlock Classes="muted small" Text="Reads each copy back and compares it with the source." />
+              </StackPanel>
+            </CheckBox>
+          </StackPanel>
+        </Border>
+
+        <!-- Archive -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="section" Text="Archive" />
+            <CheckBox IsChecked="{Binding ArchiveEnabled}">
+              <StackPanel>
+                <TextBlock Text="Keep replaced and removed files in an archive on the target" />
+                <TextBlock Classes="muted small" Text="Stored in .amberkeep/archive, so a mistake on the source can be undone." />
+              </StackPanel>
+            </CheckBox>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0" IsEnabled="{Binding ArchiveEnabled}">
+              <TextBlock Text="Keep for" VerticalAlignment="Center" />
+              <NumericUpDown Value="{Binding RetentionDays}" Minimum="1" Maximum="3650" FormatString="0" Width="110"
+                             IsEnabled="{Binding !KeepArchiveForever}" />
+              <TextBlock Text="days" VerticalAlignment="Center" />
+              <CheckBox IsChecked="{Binding KeepArchiveForever}" Content="Keep forever" Margin="12,0,0,0" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

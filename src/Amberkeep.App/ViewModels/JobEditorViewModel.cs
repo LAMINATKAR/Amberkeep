@@ -1,0 +1,353 @@
+using System.Collections.ObjectModel;
+using Amberkeep.App.Services;
+using Amberkeep.Core.Diff;
+using Amberkeep.Core.Paths;
+using Amberkeep.Core.Safety;
+using Amberkeep.Storage.Config;
+using Amberkeep.Storage.Targets;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace Amberkeep.App.ViewModels;
+
+/// <summary>A target in the editor. New targets get their marker only when the job is saved.</summary>
+public sealed partial class EditorTargetViewModel(TargetConfig target, bool isNew, bool takeOver) : ObservableObject
+{
+    public TargetConfig Target { get; } = target;
+
+    public bool IsNew { get; } = isNew;
+
+    /// <summary>The folder has a marker of another backup and the user agreed to take it over.</summary>
+    public bool TakeOver { get; } = takeOver;
+
+    public string Name => Target.Name;
+
+    public string Path => Target.LastKnownPath;
+
+    public string Note => IsNew ? "added – saved with the backup" : string.Empty;
+}
+
+public sealed record CaseChoice(CaseSensitivity Value, string Label);
+
+/// <summary>Creates or edits a backup job (SPEC 6.2).</summary>
+public sealed partial class JobEditorViewModel : ObservableObject
+{
+    private readonly IShell _shell;
+    private readonly JobConfig _original;
+    private readonly bool _isNew;
+    private readonly List<(TargetConfig Target, bool RemoveMarker, bool RemoveArchive)> _removed = [];
+    private bool _touched;
+
+    public JobEditorViewModel(IShell shell, JobConfig? job)
+    {
+        _shell = shell;
+        _isNew = job is null;
+        _original = job ?? new JobConfig();
+
+        _name = _original.Name;
+        _sourcePath = _original.SourcePath;
+        _compareContent = _original.CompareMode == CompareMode.Content;
+        _caseSensitivity = CaseChoices.First(c => c.Value == _original.CaseSensitivity);
+        _ignoreOneHourShift = _original.IgnoreOneHourShift;
+        _exclusionsText = string.Join(Environment.NewLine, _original.Exclusions);
+        _requireApproval = _original.RequireApproval;
+        _verifyCopies = _original.VerifyCopies;
+        _guardEnabled = _original.MassRemovalGuard.Enabled;
+        _guardPercent = _original.MassRemovalGuard.Percent;
+        _guardMinCount = _original.MassRemovalGuard.MinCount;
+        _archiveEnabled = _original.Archive.Enabled;
+        _keepArchiveForever = _original.Archive.RetentionDays is null;
+        _retentionDays = _original.Archive.RetentionDays ?? 30;
+
+        Targets = new ObservableCollection<EditorTargetViewModel>(
+            _original.Targets.Select(t => new EditorTargetViewModel(t, isNew: false, takeOver: false)));
+        Validate();
+    }
+
+    public string Title => _isNew ? "New backup" : $"Edit '{_original.Name}'";
+
+    public IReadOnlyList<CaseChoice> CaseChoices { get; } =
+    [
+        new(Core.Paths.CaseSensitivity.Auto, "Automatic (by operating system)"),
+        new(Core.Paths.CaseSensitivity.Insensitive, "Ignore letter case"),
+        new(Core.Paths.CaseSensitivity.Sensitive, "Letter case matters"),
+    ];
+
+    public ObservableCollection<EditorTargetViewModel> Targets { get; }
+
+    public ObservableCollection<string> Errors { get; } = [];
+
+    public bool HasErrors => Errors.Count > 0;
+
+    public bool HasNoTargets => Targets.Count == 0;
+
+    [ObservableProperty]
+    private string _name;
+
+    [ObservableProperty]
+    private string _sourcePath;
+
+    [ObservableProperty]
+    private bool _compareContent;
+
+    [ObservableProperty]
+    private CaseChoice _caseSensitivity;
+
+    [ObservableProperty]
+    private bool _ignoreOneHourShift;
+
+    [ObservableProperty]
+    private string _exclusionsText;
+
+    [ObservableProperty]
+    private bool _requireApproval;
+
+    [ObservableProperty]
+    private bool _verifyCopies;
+
+    [ObservableProperty]
+    private bool _guardEnabled;
+
+    [ObservableProperty]
+    private decimal? _guardPercent;
+
+    [ObservableProperty]
+    private decimal? _guardMinCount;
+
+    [ObservableProperty]
+    private bool _archiveEnabled;
+
+    [ObservableProperty]
+    private bool _keepArchiveForever;
+
+    [ObservableProperty]
+    private decimal? _retentionDays;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    private bool _canSave;
+
+    partial void OnNameChanged(string value) => Touch();
+
+    partial void OnSourcePathChanged(string value) => Touch();
+
+    partial void OnGuardPercentChanged(decimal? value) => Validate();
+
+    partial void OnGuardMinCountChanged(decimal? value) => Validate();
+
+    partial void OnRetentionDaysChanged(decimal? value) => Validate();
+
+    partial void OnKeepArchiveForeverChanged(bool value) => Validate();
+
+    /// <summary>The job as currently entered.</summary>
+    public JobConfig BuildJob() => _original with
+    {
+        Name = Name.Trim(),
+        SourcePath = SourcePath.Trim(),
+        CompareMode = CompareContent ? CompareMode.Content : CompareMode.SizeAndTime,
+        CaseSensitivity = CaseSensitivity.Value,
+        IgnoreOneHourShift = IgnoreOneHourShift,
+        Exclusions = ExclusionsText
+            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .ToList(),
+        RequireApproval = RequireApproval,
+        VerifyCopies = VerifyCopies,
+        MassRemovalGuard = new MassRemovalGuard(GuardEnabled, (int)(GuardPercent ?? 50), (int)(GuardMinCount ?? 100)),
+        Archive = new ArchiveSettings
+        {
+            Enabled = ArchiveEnabled,
+            RetentionDays = KeepArchiveForever ? null : (int)(RetentionDays ?? 30),
+        },
+        Targets = Targets.Select(t => t.Target).ToList(),
+    };
+
+    [RelayCommand]
+    private async Task BrowseSourceAsync()
+    {
+        if (await _shell.Dialogs.PickFolderAsync("Folder to back up") is { } folder)
+        {
+            SourcePath = folder;
+            if (string.IsNullOrWhiteSpace(Name))
+            {
+                Name = System.IO.Path.GetFileName(System.IO.Path.TrimEndingDirectorySeparator(folder));
+            }
+        }
+    }
+
+    [RelayCommand]
+    private async Task AddTargetAsync()
+    {
+        if (!System.IO.Path.IsPathFullyQualified(SourcePath.Trim()))
+        {
+            await _shell.Dialogs.ShowMessageAsync("Choose the source first", "Pick the folder to back up before adding targets.");
+            return;
+        }
+
+        var folder = await _shell.Dialogs.PickFolderAsync("Backup target folder");
+        if (folder is null)
+        {
+            return;
+        }
+
+        var job = BuildJob();
+        if (_shell.Services.Config.WithJob(job).FindPathConflict(folder, pendingJob: job) is { } conflict)
+        {
+            await _shell.Dialogs.ShowMessageAsync("Cannot use this folder", conflict);
+            return;
+        }
+
+        var takeOver = false;
+        var marker = _shell.Services.Registry.ReadMarker(folder);
+        if (marker.State == MarkerState.Present)
+        {
+            takeOver = await _shell.Dialogs.ConfirmAsync(
+                "Folder already used",
+                $"This folder is a backup target of '{marker.JobName}'. Use it for this backup instead? The other backup will no longer recognize it.",
+                "Take over");
+            if (!takeOver)
+            {
+                return;
+            }
+        }
+
+        var name = System.IO.Path.GetFileName(System.IO.Path.TrimEndingDirectorySeparator(folder));
+        var target = _shell.Services.Registry.WithLocation(
+            new TargetConfig { Name = string.IsNullOrEmpty(name) ? folder : name, CreatedUtc = _shell.Services.Time.GetUtcNow() },
+            System.IO.Path.GetFullPath(folder));
+        Targets.Add(new EditorTargetViewModel(target, isNew: true, takeOver));
+        OnPropertyChanged(nameof(HasNoTargets));
+        Touch();
+    }
+
+    [RelayCommand]
+    private async Task RemoveTargetAsync(EditorTargetViewModel target)
+    {
+        if (target.IsNew)
+        {
+            Targets.Remove(target);
+        }
+        else
+        {
+            var answers = await _shell.Dialogs.ConfirmWithOptionsAsync(
+                $"Remove '{target.Name}'?",
+                "The target is removed when you save. Backed-up files stay on the disk.",
+                "Remove",
+                [new DialogOption("Also remove the Amberkeep marker from the folder", true),
+                 new DialogOption("Also delete archived old versions")],
+                destructive: true);
+            if (answers is null)
+            {
+                return;
+            }
+
+            _removed.Add((target.Target, answers[0], answers[1]));
+            Targets.Remove(target);
+        }
+
+        OnPropertyChanged(nameof(HasNoTargets));
+        Touch();
+    }
+
+    [RelayCommand]
+    private void ResetExclusions() =>
+        ExclusionsText = string.Join(Environment.NewLine, Core.Exclusions.DefaultExclusions.Patterns);
+
+    [RelayCommand(CanExecute = nameof(CanSave))]
+    private async Task SaveAsync()
+    {
+        var services = _shell.Services;
+
+        // 1. Markers of new targets. If one fails, the markers written so far are removed again
+        //    and nothing has been saved yet.
+        var job = BuildJob() with { Targets = Targets.Where(t => !t.IsNew).Select(t => t.Target).ToList() };
+        var created = new List<(EditorTargetViewModel Row, TargetConfig Target)>();
+        try
+        {
+            foreach (var added in Targets.Where(t => t.IsNew).ToList())
+            {
+                var target = services.Registry.AddTarget(
+                    services.Config.WithJob(job), job, added.Path, added.Name, replaceForeignMarker: added.TakeOver);
+                created.Add((added, target));
+                job = job.WithTarget(target);
+            }
+
+            // 2. One save with all changes.
+            services.Save(services.Config.WithJob(job));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            foreach (var (_, target) in created)
+            {
+                services.Cleanup.CleanTargetFolder(job, target, removeMarker: true, removeArchive: false);
+            }
+
+            await _shell.Dialogs.ShowMessageAsync("The backup could not be saved", ex.Message);
+            return;
+        }
+
+        foreach (var (row, target) in created)
+        {
+            Targets[Targets.IndexOf(row)] = new EditorTargetViewModel(target, isNew: false, takeOver: false);
+        }
+
+        // 3. Files of removed targets – only after the configuration no longer refers to them.
+        var problems = new List<string>();
+        foreach (var (target, removeMarker, removeArchive) in _removed)
+        {
+            try
+            {
+                var report = services.Cleanup.CleanTargetFolder(job, target, removeMarker, removeArchive);
+                problems.AddRange(report.NotCleaned.Concat(report.Errors));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                problems.Add($"'{target.Name}': {ex.Message}");
+            }
+        }
+
+        _removed.Clear();
+        if (problems.Count > 0)
+        {
+            await _shell.Dialogs.ShowMessageAsync("Some files could not be removed", string.Join(Environment.NewLine, problems));
+        }
+
+        _shell.ShowDashboard();
+    }
+
+    [RelayCommand]
+    private void Cancel() => _shell.ShowDashboard();
+
+    private void Touch()
+    {
+        _touched = true;
+        Validate();
+    }
+
+    private void Validate()
+    {
+        if (Targets is null)
+        {
+            return;
+        }
+
+        var errors = _shell.Services.Config.Validate(BuildJob()).ToList();
+        if (_shell.Services.IsReadOnly)
+        {
+            errors.Add("Settings are read-only: " + _shell.Services.StartupMessage);
+        }
+
+        CanSave = errors.Count == 0;
+
+        // A new, untouched form shows no errors yet; Save stays disabled until it is valid.
+        Errors.Clear();
+        if (!_isNew || _touched || _shell.Services.IsReadOnly)
+        {
+            foreach (var error in errors)
+            {
+                Errors.Add(error);
+            }
+        }
+
+        OnPropertyChanged(nameof(HasErrors));
+    }
+}
