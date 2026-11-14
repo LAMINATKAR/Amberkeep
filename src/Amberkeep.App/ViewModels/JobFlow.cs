@@ -51,7 +51,9 @@ internal sealed class JobFlow(IShell shell)
         {
             Services.Activity.Analyzing(title);
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(busy.Token, Services.Gate.Token);
-            analyzed = await Services.Runner.AnalyzeAsync(job, target, busy.Progress, cancellation.Token);
+            // Off the UI thread: finding the target and checking paths can wait for an unreachable network drive.
+            var token = cancellation.Token;
+            analyzed = await Task.Run(() => Services.Runner.AnalyzeAsync(job, target, busy.Progress, token));
         }
         catch (OperationCanceledException)
         {

@@ -190,7 +190,22 @@ public sealed partial class DashboardViewModel : ObservableObject
                 return;
             }
 
-            await new JobFlow(shell).StartAsync(next.Job, next.Target, runWithoutReview: true, onFinished: () => _ = RunNextAsync());
+            await new JobFlow(shell).StartAsync(next.Job, next.Target, runWithoutReview: true, onFinished: () => _ = ContinueAsync());
+        }
+
+        // The next step starts from a callback; its errors are reported instead of disappearing with the task.
+        async Task ContinueAsync()
+        {
+            try
+            {
+                await RunNextAsync();
+            }
+            catch (Exception ex)
+            {
+                Services.ErrorLog.Write(ex, "Run all");
+                await shell.Dialogs.ShowMessageAsync("Run all stopped", ex.Message);
+                shell.ShowDashboard();
+            }
         }
     }
 
@@ -227,7 +242,7 @@ public sealed partial class DashboardViewModel : ObservableObject
 
             // Saved first (under the save lock): if that fails, nothing has been removed yet.
             shell.Services.Update(config => config.WithoutJob(saved.Id));
-            report = shell.Services.Cleanup.CleanUpRemovedJob(saved, answers[0], answers[0] && answers[1]);
+            report = await Task.Run(() => shell.Services.Cleanup.CleanUpRemovedJob(saved, answers[0], answers[0] && answers[1]));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {

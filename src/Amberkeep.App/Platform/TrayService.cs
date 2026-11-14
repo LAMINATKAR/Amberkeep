@@ -105,16 +105,32 @@ public sealed class TrayService : IDisposable
     }
 
     /// <summary>Runs connected targets of one job (or of all jobs) like an automatic run.</summary>
+    // Started from a menu click without anyone awaiting it: nothing may escape unnoticed.
     private async Task RunAsync(Guid? jobId)
+    {
+        try
+        {
+            await RunCoreAsync(jobId).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Write(ex, "Run now from the tray");
+            _notifier.Show("Run now failed", ex.Message);
+        }
+    }
+
+    private async Task RunCoreAsync(Guid? jobId)
     {
         var started = 0;
         var upToDate = 0;
         foreach (var job in _services.Config.Jobs.Where(j => jobId is null || j.Id == jobId))
         {
-            foreach (var target in job.Targets.Where(t => _services.Locator.Locate(t).IsConnected))
+            // Off the UI thread: finding targets and the run itself touch disks (possibly unreachable network drives).
+            var connected = await Task.Run(() => job.Targets.Where(t => _services.Locator.Locate(t).IsConnected).ToList()).ConfigureAwait(true);
+            foreach (var target in connected)
             {
                 started++;
-                switch (await _runner.RunAsync(job, target).ConfigureAwait(true))
+                switch (await Task.Run(() => _runner.RunAsync(job, target)).ConfigureAwait(true))
                 {
                     case BackgroundRunResult.Busy:
                         _notifier.Show("A backup is already running", "Try again when it has finished.");

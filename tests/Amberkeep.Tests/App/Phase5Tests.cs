@@ -88,8 +88,12 @@ public sealed class Phase5Tests : IDisposable
         var destination = _app.Create("restored");
         _app.Dialogs.Folders.Enqueue(destination);
         _app.Dialogs.OptionAnswers.Enqueue([false]);
+        var gateHeldDuringMessage = true;
+        _app.Dialogs.OnMessage = _ => gateHeldDuringMessage = _app.Services.Gate.IsBusy;
         await archive.RestoreToFolderCommand.ExecuteAsync(null);
         Assert.Equal("v1", File.ReadAllText(Path.Combine(destination, "keep.txt")));
+        Assert.False(gateHeldDuringMessage); // the result dialog does not hold up backups or quitting
+        _app.Dialogs.OnMessage = null;
 
         _app.Dialogs.Confirmations.Enqueue(true);
         await archive.DeleteSnapshotCommand.ExecuteAsync(null);

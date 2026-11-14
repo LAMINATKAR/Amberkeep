@@ -270,4 +270,23 @@ public sealed class DataSafetyFixTests : IDisposable
         MirrorFixture.AssertCompleted(await _fx.MirrorAsync(diff));
         Assert.Equal("backup", File.ReadAllText(_fx.TargetPath("A.txt")));
     }
+    [Fact]
+    public async Task Nothing_is_written_through_a_target_folder_that_became_a_link_after_the_analysis()
+    {
+        _fx.Source.File("sub/new.txt", "new").File("sub/changed.txt", "v2", TreeBuilder.BaseTime.AddDays(1));
+        _fx.Target.File("sub/changed.txt", "v1").File("sub/old.txt");
+        var diff = await _fx.AnalyzeAsync();
+
+        // "sub" on the target is swapped for a junction to a folder outside the target before the run.
+        var elsewhere = new TreeBuilder(Path.Combine(_fx.BasePath, "elsewhere")).File("changed.txt", "keep").File("old.txt", "keep");
+        Directory.Delete(_fx.TargetPath("sub"), recursive: true);
+        Links.CreateDirectoryLinkOrSkip(_fx.TargetPath("sub"), elsewhere.Root);
+
+        var result = await _fx.MirrorAsync(diff);
+
+        Assert.NotEqual(ExecutionOutcome.Completed, result.Outcome);
+        Assert.Equal(["changed.txt", "old.txt"], Directory.GetFiles(elsewhere.Root).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Equal("keep", File.ReadAllText(elsewhere.FullPath("changed.txt")));
+        Links.RemoveDirectoryLink(_fx.TargetPath("sub"));
+    }
 }

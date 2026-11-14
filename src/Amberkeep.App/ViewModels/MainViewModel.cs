@@ -66,8 +66,10 @@ public sealed partial class MainViewModel : ObservableObject, IShell
             return;
         }
 
-        // A background backup that is running is left to JobFlow: it says so and the review stays in the bar.
+        // On the dashboard a running backup is left to JobFlow: it says so and the review stays in the bar.
+        // Elsewhere (e.g. a restore running on the archive page) the page is kept as it is.
         var busy = Dialog is not null
+                   || (Services.Gate.IsBusy && CurrentPage is not DashboardViewModel)
                    || CurrentPage is JobEditorViewModel or OneTimeRunViewModel or DiffViewModel or RunViewModel or BusyViewModel;
         if (busy)
         {

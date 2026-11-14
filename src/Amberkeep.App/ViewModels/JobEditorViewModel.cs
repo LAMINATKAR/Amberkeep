@@ -185,17 +185,30 @@ public sealed partial class JobEditorViewModel : ObservableObject
         Trigger = new TriggerConfig
         {
             OnTargetConnected = RunOnConnect,
-            Schedule = new ScheduleConfig
-            {
-                Kind = ScheduleKind.Value,
-                Time = TimeOnly.FromTimeSpan(ScheduleTime ?? new TimeSpan(20, 0, 0)),
-                DaysOfWeek = DayToggles.Where(d => d.IsSelected).Select(d => d.Value).ToList(),
-                DayOfMonth = ScheduleDayOfMonth.Value,
-                IntervalHours = (int)(IntervalHours ?? 6),
-            },
+            Schedule = BuildSchedule(),
         },
         Targets = Targets.Select(t => t.Target).ToList(),
     };
+
+    /// <summary>
+    /// The schedule as entered. When it differs from the saved one (or was just switched on) it counts from now,
+    /// so earlier times are not treated as missed runs; an unchanged schedule keeps its start.
+    /// </summary>
+    private ScheduleConfig BuildSchedule()
+    {
+        var schedule = new ScheduleConfig
+        {
+            Kind = ScheduleKind.Value,
+            Time = TimeOnly.FromTimeSpan(ScheduleTime ?? new TimeSpan(20, 0, 0)),
+            DaysOfWeek = DayToggles.Where(d => d.IsSelected).Select(d => d.Value).ToList(),
+            DayOfMonth = ScheduleDayOfMonth.Value,
+            IntervalHours = (int)(IntervalHours ?? 6),
+        };
+        var saved = _original.Trigger.Schedule;
+        return schedule.Equals(saved)
+            ? schedule with { SinceUtc = saved.SinceUtc }
+            : schedule with { SinceUtc = _shell.Services.Time.GetUtcNow() };
+    }
 
     public IReadOnlyList<ScheduleChoice> ScheduleChoices { get; } =
     [
@@ -426,9 +439,12 @@ public sealed partial class JobEditorViewModel : ObservableObject
         var problems = new List<string>();
         foreach (var (target, removeMarker, removeArchive) in _removed)
         {
+            // A review prepared for a removed target has nothing left to open.
+            services.PendingReviews.Remove(target.Id);
             try
             {
-                var report = services.Cleanup.CleanTargetFolder(job, target, removeMarker, removeArchive);
+                var saved = job;
+                var report = await Task.Run(() => services.Cleanup.CleanTargetFolder(saved, target, removeMarker, removeArchive));
                 problems.AddRange(report.NotCleaned.Concat(report.Errors));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

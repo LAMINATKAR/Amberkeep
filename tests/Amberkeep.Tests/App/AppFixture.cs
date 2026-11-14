@@ -42,9 +42,13 @@ internal sealed class FakeDialogs : IDialogService
         return Task.FromResult(OptionAnswers.TryDequeue(out var answer) ? answer : null);
     }
 
+    /// <summary>Called when a message is shown, e.g. to see what was held at that moment.</summary>
+    public Action<string>? OnMessage { get; set; }
+
     public Task ShowMessageAsync(string title, string message)
     {
         Messages.Add($"{title}: {message}");
+        OnMessage?.Invoke(title);
         return Task.CompletedTask;
     }
 

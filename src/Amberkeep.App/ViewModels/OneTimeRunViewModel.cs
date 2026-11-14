@@ -89,8 +89,10 @@ public sealed partial class OneTimeRunViewModel : ObservableObject
         {
             _shell.Services.Activity.Analyzing(title);
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(busy.Token, _shell.Services.Gate.Token);
-            diff = await new DiffEngine(_shell.Services.FileSystem)
-                .AnalyzeAsync(new DiffRequest(source, target, options), busy.Progress, cancellation.Token);
+            // Off the UI thread: the path checks can wait for an unreachable network folder.
+            var token = cancellation.Token;
+            var engine = new DiffEngine(_shell.Services.FileSystem);
+            diff = await Task.Run(() => engine.AnalyzeAsync(new DiffRequest(source, target, options), busy.Progress, token));
         }
         catch (OperationCanceledException)
         {

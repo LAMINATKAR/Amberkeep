@@ -275,11 +275,6 @@ public enum BackgroundRunResult
 /// </summary>
 public sealed class BackgroundRunner(AppServices services, INotifier notifier, Action<PendingReview>? openReview = null)
 {
-    private CancellationTokenSource? _current;
-
-    /// <summary>Stops a running automatic backup (e.g. when the app quits).</summary>
-    public void Cancel() => _current?.Cancel();
-
     public async Task<BackgroundRunResult> RunAsync(JobConfig job, TargetConfig target, CancellationToken cancellationToken = default)
     {
         if (!services.Gate.TryEnter())
@@ -298,7 +293,6 @@ public sealed class BackgroundRunner(AppServices services, INotifier notifier, A
         target = currentTarget;
         var title = $"{job.Name} → {target.Name}";
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, services.Gate.Token);
-        _current = cancellation;
         try
         {
             services.Activity.Analyzing(title);
@@ -372,7 +366,6 @@ public sealed class BackgroundRunner(AppServices services, INotifier notifier, A
         }
         finally
         {
-            _current = null;
             services.Activity.Idle();
             services.Gate.Exit();
         }
@@ -437,8 +430,15 @@ public sealed class AutomationEngine(
 
     public void Start()
     {
-        _timer ??= services.Time.CreateTimer(_ => _ = TickAsync(), null, TimeSpan.Zero, Interval);
+        if (_timer is null)
+        {
+            // A new record (also of a manual run) moves the next scheduled time at once, not after the cache expires.
+            services.History.Changed += OnHistoryChanged;
+            _timer = services.Time.CreateTimer(_ => _ = TickAsync(), null, TimeSpan.Zero, Interval);
+        }
     }
+
+    private void OnHistoryChanged(object? sender, EventArgs e) => _history = null;
 
     /// <summary>One check of all automatic targets. The first call only records which targets are connected.</summary>
     public async Task TickAsync()
@@ -460,34 +460,21 @@ public sealed class AutomationEngine(
 
             foreach (var (job, target) in automatic)
             {
-                var connected = services.Locator.Locate(target).IsConnected;
-                var known = _connected.TryGetValue(target.Id, out var wasConnected);
-                _connected[target.Id] = connected;
-
-                if (!_primed || !connected || config.Settings.AutomaticRunsPaused || services.PendingReviews.Contains(target.Id))
+                // One broken job (e.g. a hand-edited value) must not stop the checks of all others.
+                try
                 {
-                    continue;
-                }
-
-                // A target seen for the first time (new job, trigger just switched on) only sets the baseline.
-                var isDue = job.Trigger.OnTargetConnected && known && !wasConnected;
-                if (!isDue && job.Trigger.Schedule.Kind != ScheduleKind.None)
-                {
-                    // Records "from the future" (a wrong clock) are ignored, or they would count as the last run forever.
-                    var lastRun = History(now).FirstOrDefault(r => r.JobId == job.Id && r.TargetId == target.Id && r.StartedUtc <= now)?.StartedUtc;
-                    if (_lastAttempt.TryGetValue(target.Id, out var attempt) && (lastRun is null || attempt > lastRun))
+                    if (IsDue(config, job, target, now))
                     {
-                        lastRun = attempt;
+                        due.Add((job, target));
                     }
-
-                    isDue = ScheduleCalculator.IsDue(job.Trigger.Schedule, lastRun, target.CreatedUtc, now, _zone);
                 }
-
-                if (isDue)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    due.Add((job, target));
+                    ErrorLog.Write(ex, $"Automatic check of {job.Name} → {target.Name}");
+                    services.Activity.ReportProblem();
                 }
             }
+
 
             _primed = true;
             foreach (var (job, target) in due)
@@ -524,8 +511,41 @@ public sealed class AutomationEngine(
     {
         // The token source is not disposed: a tick that is still finishing may read its token.
         _disposed = true;
+        services.History.Changed -= OnHistoryChanged;
         _timer?.Dispose();
         _stop.Cancel();
+    }
+
+    private bool IsDue(AppConfig config, JobConfig job, TargetConfig target, DateTimeOffset now)
+    {
+        var connected = services.Locator.Locate(target).IsConnected;
+        var known = _connected.TryGetValue(target.Id, out var wasConnected);
+        _connected[target.Id] = connected;
+
+        if (!_primed || !connected || config.Settings.AutomaticRunsPaused || services.PendingReviews.Contains(target.Id))
+        {
+            return false;
+        }
+
+        // A target seen for the first time (new job, trigger just switched on) only sets the baseline.
+        if (job.Trigger.OnTargetConnected && known && !wasConnected)
+        {
+            return true;
+        }
+
+        if (job.Trigger.Schedule.Kind == ScheduleKind.None)
+        {
+            return false;
+        }
+
+        // Records "from the future" (a wrong clock) are ignored, or they would count as the last run forever.
+        var lastRun = History(now).FirstOrDefault(r => r.JobId == job.Id && r.TargetId == target.Id && r.StartedUtc <= now)?.StartedUtc;
+        if (_lastAttempt.TryGetValue(target.Id, out var attempt) && (lastRun is null || attempt > lastRun))
+        {
+            lastRun = attempt;
+        }
+
+        return ScheduleCalculator.IsDue(job.Trigger.Schedule, lastRun, target.CreatedUtc, now, _zone);
     }
 
     /// <summary>Last runs from the history, re-read every 10 minutes instead of on every check.</summary>

@@ -115,7 +115,6 @@ public sealed partial class App : Application
         desktop.Exit += (_, _) =>
         {
             _automation?.Dispose();
-            _runner?.Cancel();
             _tray?.Dispose();
         };
 
@@ -169,16 +168,32 @@ public sealed partial class App : Application
             }
         }
 
-        _quitting = true;
-        _automation?.Dispose();
-        _runner?.Cancel();
-        if (_services is not null)
+        // A second Quit may have come in while the confirmation was open.
+        if (_quitting)
         {
-            // Lets the run clean up its temporary files and write its history record.
-            await _services.Gate.StopAsync(StopTimeout);
+            return;
         }
 
-        _desktop.Shutdown();
+        _quitting = true;
+        try
+        {
+            _automation?.Dispose();
+            if (_services is not null)
+            {
+                // Cancels whatever holds the gate (also an automatic run) and lets it clean up its temporary files
+                // and write its history record.
+                await _services.Gate.StopAsync(StopTimeout);
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Write(ex, "Quit");
+        }
+        finally
+        {
+            // Whatever happened above, Amberkeep closes.
+            _desktop.Shutdown();
+        }
     }
 
     // No waiting here: the system ends the session soon; the run is cancelled and stops between two files.
@@ -186,7 +201,6 @@ public sealed partial class App : Application
     {
         _quitting = true;
         _automation?.Dispose();
-        _runner?.Cancel();
         _ = _services?.Gate.StopAsync(TimeSpan.Zero);
     }
 

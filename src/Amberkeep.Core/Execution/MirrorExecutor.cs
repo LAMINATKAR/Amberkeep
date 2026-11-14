@@ -74,6 +74,12 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
         private long _progressBytes;
         private bool _freeSpaceUnknown;
 
+        // Entries of source folders, listed once per run for the "back in the source" check (full path → entries).
+        private readonly Dictionary<string, Dictionary<(EntryKind Kind, string Key), string>> _sourceListings = new(StringComparer.Ordinal);
+
+        // Target folders checked for not being links this run (full paths).
+        private readonly HashSet<string> _checkedFolders = new(StringComparer.Ordinal);
+
         // Folders this run renamed on the target (old → new relative path), in the order they were renamed.
         private readonly List<(string Old, string New)> _renamedFolders = [];
 
@@ -271,7 +277,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                 {
                     var path = TargetPath(item.Target!.RelativePath);
                     EnsureNotBackInSource(item.Target);
-                    EnsureUnchanged(item.Target, path);
+                    EnsureUnchangedOnTarget(item.Target, path);
                     DisposeOfTargetFile(item.Target.RelativePath, path);
                     _removedFiles++;
                 });
@@ -290,6 +296,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                     }
 
                     EnsureNotBackInSource(item.Target);
+                    EnsureNoLinkAbove(path);
 
                     if (entry.Kind != EntryKind.Directory || entry.IsLink)
                     {
@@ -321,7 +328,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                 {
                     var current = CurrentTargetRelative(item.Target!.RelativePath);
                     var path = TargetPath(current);
-                    EnsureUnchanged(item.Target, path);
+                    EnsureUnchangedOnTarget(item.Target, path);
                     var newName = PathKey.GetName(item.Source!.RelativePath);
                     RenameLeaf(path, newName, item.Kind);
                     if (item.Kind == EntryKind.Directory)
@@ -346,6 +353,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                 Do(item, ExecutionOperation.CreateDirectory, () =>
                 {
                     var path = TargetPath(TargetRelativeFor(item.Source!.RelativePath));
+                    EnsureNoLinkAbove(path);
                     var entry = fs.GetEntry(path);
                     if (entry is { Kind: EntryKind.Directory, IsLink: false })
                     {
@@ -388,9 +396,10 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             else
             {
                 existing = TargetPath(CurrentTargetRelative(item.Target!.RelativePath));
-                EnsureUnchanged(item.Target, existing);
+                EnsureUnchangedOnTarget(item.Target, existing);
             }
 
+            EnsureNoLinkAbove(destination);
             var parent = Path.GetDirectoryName(destination)!;
             if (fs.GetEntry(parent) is null)
             {
@@ -499,11 +508,11 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                 return;
             }
 
-            ClearReadOnly(existing);
             // Same leaf name (a parent folder may differ only in case): the paths point to the same file.
             if (string.Equals(Path.GetFileName(existing), Path.GetFileName(destination), StringComparison.Ordinal))
             {
                 // Atomic replace: the old content stays until the new one is in place.
+                ClearReadOnly(existing);
                 fs.MoveFile(temp, _guard.Check(destination), overwrite: true);
             }
             else
@@ -522,7 +531,16 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                     throw;
                 }
 
-                fs.DeleteFile(_guard.Check(aside));
+                // The new file is in place; the old one is only leftover (the temp folder goes at the end anyway).
+                try
+                {
+                    ClearReadOnly(aside);
+                    fs.DeleteFile(_guard.Check(aside));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _notes.Add($"The replaced version of {item.RelativePath} could not be deleted from the temporary folder: {ex.Message}");
+                }
             }
         }
 
@@ -535,7 +553,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                     var source = SourcePath(item.Source!.RelativePath);
                     var path = TargetPath(CurrentTargetRelative(item.Target!.RelativePath));
                     EnsureUnchanged(item.Source, source);
-                    EnsureUnchanged(item.Target, path);
+                    EnsureUnchangedOnTarget(item.Target, path);
 
                     var attributes = fs.GetAttributes(path);
                     var readOnly = (attributes & FileAttributes.ReadOnly) != 0;
@@ -699,6 +717,29 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             Report(operation, item.RelativePath, force: false);
         }
 
+        // A target item is only touched when no folder above it (inside the target) has become a link since the
+        // analysis; otherwise the write would land wherever the link points.
+        private void EnsureUnchangedOnTarget(ScannedEntry expected, string path)
+        {
+            EnsureNoLinkAbove(path);
+            EnsureUnchanged(expected, path);
+        }
+
+        private void EnsureNoLinkAbove(string path)
+        {
+            var root = Path.TrimEndingDirectorySeparator(diff.TargetPath);
+            for (var folder = Path.GetDirectoryName(path);
+                 folder is not null && folder.Length > root.Length && _checkedFolders.Add(folder);
+                 folder = Path.GetDirectoryName(folder))
+            {
+                if (fs.GetEntry(folder) is { IsLink: true })
+                {
+                    _checkedFolders.Remove(folder);
+                    throw new StaleItemException("A folder above this item on the target is now a link or junction – analyze again.");
+                }
+            }
+        }
+
         private void EnsureUnchanged(ScannedEntry expected, string path)
         {
             if (!Matches(expected, fs.GetEntry(path)))
@@ -801,12 +842,54 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
 
         // A removal is only right while the path is still missing in the source (the user may have put it back).
         // A different kind at the same name is the planned type change (the analysis saw it too).
+        // Matched by the rules of the analysis (the job's letter-case option, Unicode form) segment by segment, not
+        // by the source file system: on NTFS "docs/a.txt" would otherwise find "Docs/a.txt", although for a
+        // case-sensitive job they are different paths.
         private void EnsureNotBackInSource(ScannedEntry target)
         {
-            if (fs.GetEntry(SourcePath(target.RelativePath)) is { } entry && entry.Kind == target.Kind)
+            var segments = target.RelativePath.Split(PathKey.Separator);
+            var folder = diff.SourcePath;
+            for (var i = 0; i < segments.Length; i++)
             {
-                throw new StaleItemException("It exists in the source again – analyze again.");
+                var kind = i == segments.Length - 1 ? target.Kind : EntryKind.Directory;
+                if (FindInSource(folder, segments[i], kind) is not { } actual)
+                {
+                    return;
+                }
+
+                folder = Path.Join(folder, actual);
             }
+
+            throw new StaleItemException("It exists in the source again – analyze again.");
+        }
+
+        // One listing per source folder and run: removing thousands of files from one folder lists it once.
+        private string? FindInSource(string folder, string name, EntryKind kind)
+        {
+            if (!_sourceListings.TryGetValue(folder, out var entries))
+            {
+                var comparer = diff.Options.CaseSensitivity.IsCaseSensitive() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+                entries = new Dictionary<(EntryKind Kind, string Key), string>(new KindAndKey(comparer));
+                // Also through a link: the analysis scanned the source root even when it is a junction.
+                if (fs.GetEntry(folder) is { Kind: EntryKind.Directory })
+                {
+                    foreach (var entry in fs.ListDirectory(folder))
+                    {
+                        entries.TryAdd((entry.Kind, PathKey.Normalize(entry.Name)), entry.Name);
+                    }
+                }
+
+                _sourceListings[folder] = entries;
+            }
+
+            return entries.TryGetValue((kind, PathKey.Normalize(name)), out var actual) ? actual : null;
+        }
+
+        private sealed class KindAndKey(StringComparer keys) : IEqualityComparer<(EntryKind Kind, string Key)>
+        {
+            public bool Equals((EntryKind Kind, string Key) x, (EntryKind Kind, string Key) y) => x.Kind == y.Kind && keys.Equals(x.Key, y.Key);
+
+            public int GetHashCode((EntryKind Kind, string Key) obj) => HashCode.Combine(obj.Kind, keys.GetHashCode(obj.Key));
         }
 
         private string TargetPath(string relativePath) => PathKey.ToSystemPath(diff.TargetPath, relativePath);

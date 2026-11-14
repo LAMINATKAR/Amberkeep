@@ -132,15 +132,22 @@ public sealed class CleanupService(
         }
 
         // Only files Amberkeep wrote; anything else in the program folder belongs to the user.
-        if (fileSystem.DirectoryExists(store.BaseDirectory))
+        IReadOnlyList<FileSystemEntry> entries = [];
+        try
         {
-            foreach (var entry in fileSystem.ListDirectory(store.BaseDirectory))
+            if (fileSystem.DirectoryExists(store.BaseDirectory))
             {
-                if (entry.Kind == EntryKind.File && AppStore.IsOwnFile(entry.Name))
-                {
-                    Try(report, entry.Name, () => fileSystem.DeleteFile(Path.Join(store.BaseDirectory, entry.Name)));
-                }
+                entries = fileSystem.ListDirectory(store.BaseDirectory);
             }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            report.Errors.Add($"{store.BaseDirectory}: {ex.Message}");
+        }
+
+        foreach (var entry in entries.Where(e => e.Kind == EntryKind.File && AppStore.IsOwnFile(e.Name)))
+        {
+            Try(report, entry.Name, () => fileSystem.DeleteFile(Path.Join(store.BaseDirectory, entry.Name)));
         }
 
         // history/: only our record files; the folder goes only when nothing else is in it.
@@ -197,6 +204,14 @@ public sealed class CleanupService(
         }
 
         var programFolder = MarkerFile.ProgramFolder(status.Path!);
+
+        // Through a linked .amberkeep the archive could be anywhere: nothing is removed then.
+        if (fileSystem.GetEntry(programFolder) is { IsLink: true })
+        {
+            report.NotCleaned.Add($"{label}: {programFolder} is a link or junction. Nothing was removed there.");
+            return;
+        }
+
         if (removeArchive)
         {
             DeleteFolder(Path.Join(programFolder, "archive"), report);
@@ -238,7 +253,7 @@ public sealed class CleanupService(
             action();
             report.Removed.Add(what);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             report.Errors.Add($"{what}: {ex.Message}");
         }

@@ -8,7 +8,11 @@ namespace Amberkeep.Storage;
 /// <param name="Config">Loaded configuration; null when it must not be used (see <paramref name="Error"/>).</param>
 /// <param name="Warning">Something the user should know, e.g. a damaged file was replaced by defaults.</param>
 /// <param name="Error">The configuration cannot be used and must not be overwritten.</param>
-public sealed record LoadResult(AppConfig? Config, string? Warning, string? Error);
+public sealed record LoadResult(AppConfig? Config, string? Warning, string? Error)
+{
+    /// <summary>Invalid values were corrected while loading; the caller should save the corrected settings.</summary>
+    public bool Corrected { get; init; }
+}
 
 /// <summary>
 /// Files Amberkeep keeps next to its executable (SPEC 5): <c>amberkeep.json</c>, <c>history/</c>, <c>state/</c>.
@@ -146,7 +150,7 @@ public sealed partial class AppStore(string baseDirectory, IWritableFileSystem f
         return new LoadResult(
             normalized,
             fixes.Count == 0 ? null : "Some settings in amberkeep.json were invalid and were corrected: " + string.Join(" ", fixes),
-            null);
+            null) { Corrected = fixes.Count > 0 };
     }
 
     /// <exception cref="InvalidOperationException">The file on disk was written by a newer version and must not be overwritten.</exception>

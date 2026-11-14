@@ -33,6 +33,9 @@ public sealed class JobRunner(
     /// <summary>Amberkeep's own folder; never part of a target, skipped inside a source (DiffOptions.ProtectedFolders).</summary>
     public string? ProgramDirectory { get; init; }
 
+    /// <summary>The configuration as saved now; used to check a target that was found at a new place.</summary>
+    public Func<AppConfig>? CurrentConfig { get; init; }
+
     public async Task<PreparedRun> AnalyzeAsync(
         JobConfig job,
         TargetConfig target,
@@ -54,6 +57,15 @@ public sealed class JobRunner(
         }
 
         var moved = !string.Equals(status.Path, target.LastKnownPath, StringComparison.Ordinal);
+
+        // A target found somewhere new (another drive letter, a copied backup folder) must pass the same checks as
+        // when it was added: not in or around another backup's source or target, nor around Amberkeep itself.
+        if (moved && CurrentConfig?.Invoke() is { } config
+            && config.FindPathConflict(status.Path!, target.Id, job, ProgramDirectory, onDisk: true) is { } conflict)
+        {
+            return new PreparedRun(job, target, TargetStatus.Unverified(status.Path!, $"Found at {status.Path}, but it cannot be used there: {conflict}"), null);
+        }
+
         var located = moved ? new TargetRegistry(fileSystem, volumes, timeProvider).WithLocation(target, status.Path!) : target;
         var diff = await new DiffEngine(fileSystem)
             .AnalyzeAsync(new DiffRequest(job.SourcePath, status.Path!, job.ToDiffOptions() with { ProtectedFolders = ProgramDirectory is null ? [] : [ProgramDirectory] }), progress, cancellationToken)

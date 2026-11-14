@@ -6,6 +6,9 @@ public enum PathRelation
     Same,
     TargetInsideSource,
     SourceInsideTarget,
+
+    /// <summary>One side is a share of this computer whose local folder could not be found: an overlap cannot be ruled out.</summary>
+    Uncertain,
 }
 
 /// <summary>Detects source and target folders that are the same or nested in each other.</summary>
@@ -47,6 +50,11 @@ public static class PathOverlap
         if (targetId is not null && AnySelfOrParentHasId(realSource ?? sourcePath, targetId))
         {
             return PathRelation.SourceInsideTarget;
+        }
+
+        if (PathIdentity.IsUnresolvedShareOfThisComputer(sourcePath) || PathIdentity.IsUnresolvedShareOfThisComputer(targetPath))
+        {
+            return PathRelation.Uncertain;
         }
 
         return PathRelation.Separate;

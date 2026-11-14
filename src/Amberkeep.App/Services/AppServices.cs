@@ -21,7 +21,7 @@ public sealed class AppServices
         History = new HistoryStore(Store, fileSystem);
         Registry = new TargetRegistry(fileSystem, volumes, time) { ProgramDirectory = Store.BaseDirectory };
         Locator = new TargetLocator(fileSystem, volumes);
-        Runner = new JobRunner(fileSystem, volumes, History, time) { ProgramDirectory = Store.BaseDirectory };
+        Runner = new JobRunner(fileSystem, volumes, History, time) { ProgramDirectory = Store.BaseDirectory, CurrentConfig = () => Config };
         Cleanup = new CleanupService(Store, History, fileSystem, volumes, autostart);
     }
 
@@ -166,9 +166,25 @@ public sealed class AppServices
             StartupMessage = notWritable;
             StartupMessageIsError = true;
         }
-        else if (result.Warning is not null)
+        else
         {
-            StartupMessage = result.Warning;
+            if (result.Warning is not null)
+            {
+                StartupMessage = result.Warning;
+            }
+
+            // Corrected values (e.g. new ids for duplicates) are saved at once, so they stay the same next time.
+            if (result.Corrected)
+            {
+                try
+                {
+                    Store.Save(result.Config!);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    // Not saved: corrected again on the next start.
+                }
+            }
         }
     }
 }

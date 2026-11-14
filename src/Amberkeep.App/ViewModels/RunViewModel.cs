@@ -131,8 +131,14 @@ public sealed partial class RunViewModel : ObservableObject
             outcome = new RunOutcome(
                 ExecutionOutcome.Cancelled, null, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], [], null, _stopwatch.Elapsed);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception ex)
         {
+            // Whatever went wrong, the page shows a result and can be left; it never stays on "Backing up".
+            if (ex is not (IOException or UnauthorizedAccessException or InvalidOperationException))
+            {
+                Services.ErrorLog.Write(ex, $"Backup {Title}");
+            }
+
             outcome = new RunOutcome(
                 ExecutionOutcome.Refused, ex.Message, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], [], null, _stopwatch.Elapsed);
         }

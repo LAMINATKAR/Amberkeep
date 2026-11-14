@@ -44,6 +44,8 @@ public static class SafetyChecks
             PathRelation.Same => "Source and target are the same folder.",
             PathRelation.TargetInsideSource => "Target folder is inside the source folder.",
             PathRelation.SourceInsideTarget => "Source folder is inside the target folder.",
+            PathRelation.Uncertain =>
+                "The source or the target is a folder shared from this computer, and Amberkeep cannot tell where it is on the local disk. Use its local path (e.g. D:\\Backup) instead.",
             _ => null,
         };
 

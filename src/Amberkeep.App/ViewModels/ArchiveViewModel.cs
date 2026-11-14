@@ -248,7 +248,8 @@ public sealed partial class ArchiveViewModel : ObservableObject
         await LoadAsync();
     }
 
-    // Deleting archive snapshots must not run beside a backup that writes into the same archive.
+    // Deleting archive snapshots must not run beside a backup that writes into the same archive. The work runs off
+    // the UI thread: deleting a large snapshot on a slow disk takes a while.
     private async Task<bool> WithGateAsync(Action action)
     {
         if (!_shell.Services.Gate.TryEnter())
@@ -259,7 +260,7 @@ public sealed partial class ArchiveViewModel : ObservableObject
 
         try
         {
-            action();
+            await Task.Run(action);
         }
         finally
         {
@@ -302,9 +303,12 @@ public sealed partial class ArchiveViewModel : ObservableObject
         IsRestoring = true;
         _restoreCancellation = CancellationTokenSource.CreateLinkedTokenSource(_shell.Services.Gate.Token);
         var progress = new Progress<RestoreProgress>(p => RestoreStatus = $"Restoring {p.Done:N0} of {p.Total:N0}…  {p.CurrentPath}");
+        string resultTitle;
+        string resultMessage;
         try
         {
-            var result = await Task.Run(() => _browser.RestoreAsync(row.Snapshot, paths, destination, answers[0], progress, _restoreCancellation.Token));
+            var token = _restoreCancellation.Token;
+            var result = await Task.Run(() => _browser.RestoreAsync(row.Snapshot, paths, destination, answers[0], progress, token));
             var lines = new List<string> { $"{Format.Count(result.Restored, "file", "files")} restored." };
             if (result.SkippedExisting > 0)
             {
@@ -312,20 +316,25 @@ public sealed partial class ArchiveViewModel : ObservableObject
             }
 
             lines.AddRange(result.Failures.Select(f => $"{f.RelativePath}: {f.Message}"));
-            await _shell.Dialogs.ShowMessageAsync(result.Cancelled ? "Restore stopped" : "Restore finished", string.Join(Environment.NewLine, lines));
+            resultTitle = result.Cancelled ? "Restore stopped" : "Restore finished";
+            resultMessage = string.Join(Environment.NewLine, lines);
         }
         catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
         {
-            await _shell.Dialogs.ShowMessageAsync("The files could not be restored", ex.Message);
+            resultTitle = "The files could not be restored";
+            resultMessage = ex.Message;
         }
         finally
         {
+            // Released before the result is shown, so an open dialog never holds up backups or quitting.
             IsRestoring = false;
             RestoreStatus = string.Empty;
             _restoreCancellation.Dispose();
             _restoreCancellation = null;
             _shell.Services.Gate.Exit();
         }
+
+        await _shell.Dialogs.ShowMessageAsync(resultTitle, resultMessage);
     }
 
     private async Task LoadFilesAsync(SnapshotRowViewModel? row)

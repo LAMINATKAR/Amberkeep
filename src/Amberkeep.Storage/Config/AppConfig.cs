@@ -47,9 +47,17 @@ public sealed record AppConfig
     /// <param name="pendingJob">The job being edited, in place of its saved version.</param>
     /// <param name="programDirectory">Amberkeep's own folder, which no target may overlap.</param>
     /// <param name="onDisk">Also compare where the folders really are (junctions, links, drive aliases); touches the disk.</param>
+    /// <param name="ownerJobId">The job the ignored target belongs to; a target with the same id in another job is
+    /// still checked (an imported or hand-copied job may carry another job's target id). Defaults to the pending job.</param>
     public string? FindPathConflict(
-        string path, Guid? ignoreTargetId = null, JobConfig? pendingJob = null, string? programDirectory = null, bool onDisk = false)
+        string path,
+        Guid? ignoreTargetId = null,
+        JobConfig? pendingJob = null,
+        string? programDirectory = null,
+        bool onDisk = false,
+        Guid? ownerJobId = null)
     {
+        var owner = ownerJobId ?? pendingJob?.Id;
         if (programDirectory is not null && SafetyChecks.CheckOverlap(programDirectory, path, onDisk) is not null)
         {
             return $"The folder overlaps the folder of Amberkeep itself ({programDirectory}); a mirror would remove its settings and history.";
@@ -63,7 +71,7 @@ public sealed record AppConfig
                 return $"The folder overlaps the source of the backup '{job.Name}' ({job.SourcePath}).";
             }
 
-            foreach (var target in job.Targets.Where(t => t.Id != ignoreTargetId && Path.IsPathFullyQualified(t.LastKnownPath)))
+            foreach (var target in job.Targets.Where(t => (t.Id != ignoreTargetId || (owner is not null && job.Id != owner)) && Path.IsPathFullyQualified(t.LastKnownPath)))
             {
                 if (SafetyChecks.CheckOverlap(target.LastKnownPath, path, onDisk) is not null)
                 {
@@ -101,7 +109,7 @@ public sealed record AppConfig
         {
             // Other jobs, plus the job's own other targets.
             var context = others.WithJob(job with { SourcePath = string.Empty });
-            if (context.FindPathConflict(target.LastKnownPath, target.Id, programDirectory: programDirectory, onDisk: onDisk) is { } conflict)
+            if (context.FindPathConflict(target.LastKnownPath, target.Id, programDirectory: programDirectory, onDisk: onDisk, ownerJobId: job.Id) is { } conflict)
             {
                 errors.Add($"Target '{target.Name}': {conflict}");
             }
@@ -164,7 +172,8 @@ public sealed record AppConfig
             var guard = j.MassRemovalGuard ?? new MassRemovalGuard();
             if (guard.Percent is < 0 or > 100 || guard.Count < 0)
             {
-                guard = guard with { Percent = Math.Clamp(guard.Percent, 0, 100), Count = Math.Max(0, guard.Count) };
+                // A negative count becomes the default, not 0: 0 would switch that limit off.
+                guard = guard with { Percent = Math.Clamp(guard.Percent, 0, 100), Count = guard.Count < 0 ? new MassRemovalGuard().Count : guard.Count };
                 Fix("the limits of 'Ask before removing many files' were out of range and were corrected.");
             }
 
@@ -181,6 +190,24 @@ public sealed record AppConfig
             {
                 schedule = schedule with { Kind = ScheduleKind.None };
                 Fix("an unknown schedule was switched off.");
+            }
+
+            if (schedule.IntervalHours is < 1 or > 744)
+            {
+                schedule = schedule with { IntervalHours = Math.Clamp(schedule.IntervalHours, 1, 744) };
+                Fix("the schedule interval was limited to 1–744 hours.");
+            }
+
+            if (schedule.DayOfMonth is < 1 or > 31)
+            {
+                schedule = schedule with { DayOfMonth = Math.Clamp(schedule.DayOfMonth, 1, 31) };
+                Fix("the day of the month of the schedule was limited to 1–31.");
+            }
+
+            if (schedule.Kind == ScheduleKind.Weekly && schedule.DaysOfWeek.Count == 0)
+            {
+                schedule = schedule with { Kind = ScheduleKind.None };
+                Fix("a weekly schedule without days was switched off.");
             }
 
             var targets = new List<TargetConfig>();
@@ -268,6 +295,13 @@ public sealed record ScheduleConfig
 
     /// <summary>Hours between runs for interval schedules.</summary>
     public int IntervalHours { get; init; } = 6;
+
+    /// <summary>
+    /// When the schedule was set (by the editor). Times before it are never "missed", so switching a schedule on
+    /// does not start a catch-up run at once. Null in files written before this existed. Not part of equality:
+    /// it describes when, not what.
+    /// </summary>
+    public DateTimeOffset? SinceUtc { get; init; }
 
     /// <summary>The single weekly day of files written before multi-day schedules; moved into <see cref="DaysOfWeek"/> on load.</summary>
     [System.Text.Json.Serialization.JsonPropertyName("dayOfWeek")]

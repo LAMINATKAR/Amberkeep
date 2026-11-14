@@ -267,14 +267,29 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var report = _shell.Services.Cleanup.CleanUpEverything(_shell.Services.Config, answers[0], answers[0] && answers[1]);
-        var lines = report.NotCleaned.Concat(report.Errors).ToList();
+        // Whatever happens, the gate is let go (no new work) and Amberkeep closes; nothing may stay locked.
+        var lines = new List<string>();
+        try
+        {
+            var config = _shell.Services.Config;
+            var report = await Task.Run(() => _shell.Services.Cleanup.CleanUpEverything(config, answers[0], answers[0] && answers[1]));
+            lines.AddRange(report.NotCleaned.Concat(report.Errors));
+        }
+        catch (Exception ex)
+        {
+            Services.ErrorLog.Write(ex, "Clean up everything");
+            lines.Add(ex.Message);
+        }
+        finally
+        {
+            _shell.Services.Gate.ExitAndStop();
+        }
+
         if (lines.Count > 0)
         {
             await _shell.Dialogs.ShowMessageAsync("Some files could not be removed", string.Join(Environment.NewLine, lines));
         }
 
-        _shell.Services.Gate.ExitAndStop();
         _shell.RequestExit();
     }
 }

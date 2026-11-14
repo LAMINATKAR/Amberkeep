@@ -67,6 +67,13 @@ public static class ScheduleCalculator
         }
 
         var from = lastRun ?? since;
+
+        // Times before the schedule was set are not missed runs (switching a schedule on does not run at once).
+        if (schedule.SinceUtc is { } set && set > from && set <= now)
+        {
+            from = set;
+        }
+
         var earliest = now.AddDays(-366);
         if (from < earliest)
         {

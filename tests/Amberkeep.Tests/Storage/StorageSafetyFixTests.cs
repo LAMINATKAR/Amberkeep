@@ -104,7 +104,7 @@ public sealed class StorageSafetyFixTests : IDisposable
 
         var jobs = result.Config!.Jobs;
         Assert.Null(jobs[0].Archive.RetentionDays);
-        Assert.Equal(new MassRemovalGuard(true, 100, 0), jobs[0].MassRemovalGuard);
+        Assert.Equal(new MassRemovalGuard(true, 100, 1000), jobs[0].MassRemovalGuard);
         Assert.Equal(CompareMode.SizeAndTime, jobs[0].CompareMode);
         Assert.NotEqual(jobs[0].Id, jobs[1].Id);
         Assert.NotEqual(jobs[0].Targets[0].Id, jobs[1].Targets[0].Id);
@@ -195,5 +195,120 @@ public sealed class StorageSafetyFixTests : IDisposable
         // ... and a target created after today's time waits for tomorrow, as usual.
         Assert.False(ScheduleCalculator.IsDue(daily, lastRun, now.AddMinutes(-30), now, TimeZoneInfo.Utc));
         Assert.True(ScheduleCalculator.IsDue(daily, lastRun, now.AddMinutes(-30), now.AddDays(1), TimeZoneInfo.Utc));
+    }
+    [Fact]
+    public void Imported_job_with_the_target_of_another_job_gets_a_new_target_id_and_is_refused()
+    {
+        var (job, target) = _fx.JobWithTarget();
+        var config = new AppConfig().WithJob(job);
+        var copy = job with { Id = Guid.NewGuid(), Name = "Copy", SourcePath = _fx.Create("other-source") };
+
+        var result = ConfigTransfer.Merge(config, [copy], replaceExisting: false);
+
+        Assert.Empty(result.Added);
+        var skipped = Assert.Single(result.Skipped);
+        Assert.Contains("overlaps the target", skipped.Reason, StringComparison.Ordinal);
+        Assert.Single(result.Config.Jobs.SelectMany(j => j.Targets), t => t.Id == target.Id);
+    }
+
+    [Fact]
+    public async Task Target_found_inside_another_backups_source_is_not_used()
+    {
+        // Job A's target folder (with its marker) was copied into the source of job B, and A's disk is gone.
+        var (jobA, targetA) = _fx.JobWithTarget("A");
+        // The copy sits where the locator looks on another disk (same relative path), inside job B's source.
+        var sourceB = _fx.VolumeB;
+        var jobB = _fx.NewJob("B") with { SourcePath = sourceB };
+        var copy = Path.Combine(sourceB, "Backup", "A");
+        CopyTree(targetA.LastKnownPath, copy);
+        Directory.Delete(targetA.LastKnownPath, recursive: true);
+        var config = new AppConfig().WithJob(jobA).WithJob(jobB);
+        var runner = new JobRunner(_fx.FileSystem, _fx.Volumes, _fx.History, _fx.Time) { CurrentConfig = () => config };
+
+        var run = await runner.AnalyzeAsync(jobA, targetA, cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(run.Diff);
+        Assert.Equal(Amberkeep.Storage.Targets.TargetState.Unverified, run.Status.State);
+        Assert.Contains("overlaps the source of the backup 'B'", run.Status.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Broken_schedule_numbers_are_corrected_on_load()
+    {
+        var (job, _) = _fx.JobWithTarget();
+        _fx.Store.Save(new AppConfig().WithJob(job));
+        var root = JsonNode.Parse(File.ReadAllText(_fx.Store.ConfigPath))!;
+        var schedule = root["jobs"]![0]!["trigger"]!["schedule"]!;
+        schedule["kind"] = "Interval";
+        schedule["intervalHours"] = 900_000_000;
+        schedule["dayOfMonth"] = 77;
+        File.WriteAllText(_fx.Store.ConfigPath, root.ToJsonString());
+
+        var result = _fx.Store.Load();
+
+        var loaded = result.Config!.Jobs[0].Trigger.Schedule;
+        Assert.Equal(744, loaded.IntervalHours);
+        Assert.Equal(31, loaded.DayOfMonth);
+        Assert.True(result.Corrected);
+        var now = DateTimeOffset.UtcNow;
+        _ = ScheduleCalculator.IsDue(loaded, null, now.AddDays(-1), now, TimeZoneInfo.Utc); // no overflow
+    }
+
+    [Fact]
+    public void Schedule_does_not_count_times_before_it_was_set()
+    {
+        var now = new DateTimeOffset(2026, 11, 14, 10, 0, 0, TimeSpan.Zero);
+        var daily = new ScheduleConfig { Kind = ScheduleKind.Daily, Time = new TimeOnly(20, 0), SinceUtc = now.AddMinutes(-5) };
+
+        // Last run yesterday morning: 20:00 yesterday would be "missed", but the schedule was only set just now.
+        Assert.False(ScheduleCalculator.IsDue(daily, now.AddDays(-1), now.AddDays(-30), now, TimeZoneInfo.Utc));
+        Assert.True(ScheduleCalculator.IsDue(daily, now.AddDays(-1), now.AddDays(-30), now.AddHours(10), TimeZoneInfo.Utc));
+        Assert.True(ScheduleCalculator.IsDue(daily with { SinceUtc = null }, now.AddDays(-1), now.AddDays(-30), now, TimeZoneInfo.Utc));
+    }
+
+    [Fact]
+    public void Comments_and_trailing_commas_in_a_hand_edited_file_are_accepted()
+    {
+        File.WriteAllText(_fx.Store.ConfigPath, """
+            {
+              // edited by hand
+              "version": 1,
+              "jobs": [],
+            }
+            """);
+
+        var result = _fx.Store.Load();
+
+        Assert.NotNull(result.Config);
+        Assert.Null(result.Error);
+        Assert.Single(Directory.GetFiles(_fx.AppDirectory));
+    }
+
+    [Fact]
+    public void History_reports_new_records()
+    {
+        var changes = 0;
+        _fx.History.Changed += (_, _) => changes++;
+        var (job, target) = _fx.JobWithTarget();
+
+        _fx.History.Add(
+            new Amberkeep.Storage.History.RunRecord { RunId = Guid.NewGuid(), JobId = job.Id, TargetId = target.Id, StartedUtc = DateTimeOffset.UtcNow },
+            limit: 10);
+
+        Assert.Equal(1, changes);
+    }
+
+    private static void CopyTree(string from, string to)
+    {
+        foreach (var dir in Directory.GetDirectories(from, "*", SearchOption.AllDirectories))
+        {
+            Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, dir)));
+        }
+
+        Directory.CreateDirectory(to);
+        foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+        {
+            File.Copy(file, Path.Combine(to, Path.GetRelativePath(from, file)));
+        }
     }
 }

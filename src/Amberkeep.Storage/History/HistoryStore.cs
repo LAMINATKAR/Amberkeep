@@ -67,6 +67,9 @@ public sealed partial class HistoryStore(string directory, IWritableFileSystem f
 
     public string Directory { get; } = directory;
 
+    /// <summary>Raised after a record was added or records were deleted (on the thread that changed them).</summary>
+    public event EventHandler? Changed;
+
     /// <summary>Saves the record and deletes the oldest records beyond <paramref name="limit"/>.</summary>
     public void Add(RunRecord record, int limit)
     {
@@ -75,6 +78,7 @@ public sealed partial class HistoryStore(string directory, IWritableFileSystem f
         StorageFiles.Write(fileSystem, Path.Join(Directory, name + ChangesExtension), record.SelectedChanges.ToList(), StorageJsonContext.Default.ListRecordedChange);
         StorageFiles.Write(fileSystem, Path.Join(Directory, name + RecordExtension), record, StorageJsonContext.Default.RunRecord);
         Prune(Math.Max(1, limit));
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>All readable records without their change lists, newest first. Damaged files are skipped.</summary>
@@ -125,6 +129,7 @@ public sealed partial class HistoryStore(string directory, IWritableFileSystem f
             }
         }
 
+        Changed?.Invoke(this, EventArgs.Empty);
         return deleted;
     }
 

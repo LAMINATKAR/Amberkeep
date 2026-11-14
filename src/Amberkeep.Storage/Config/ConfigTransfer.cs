@@ -77,8 +77,15 @@ public static class ConfigTransfer
         var replaced = new List<string>();
         var skipped = new List<SkippedImport>();
 
-        foreach (var job in imported)
+        foreach (var original in imported)
         {
+            // A target id that belongs to another job (a job copied by hand in the file) gets a new id: two jobs
+            // must never recognize the same disk folder as theirs. Such a target then has to be located.
+            var foreign = current.Jobs.Where(j => j.Id != original.Id).SelectMany(j => j.Targets).Select(t => t.Id).ToHashSet();
+            var job = original with
+            {
+                Targets = original.Targets.Select(t => foreign.Contains(t.Id) ? t with { Id = Guid.NewGuid() } : t).ToList(),
+            };
             var exists = current.FindJob(job.Id) is not null;
             if (exists && !replaceExisting)
             {
