@@ -46,8 +46,10 @@ public sealed class TrayService : IDisposable
 
     private void OnConfigChanged(object? sender, EventArgs e) => Dispatcher.UIThread.Post(RebuildMenu);
 
-    private void OnActivityChanged(object? sender, ActivityState state) => Dispatcher.UIThread.Post(() =>
+    // The current state is read on the UI thread: notifications from different threads may arrive out of order.
+    private void OnActivityChanged(object? sender, ActivityState changed) => Dispatcher.UIThread.Post(() =>
     {
+        var state = _services.Activity.State;
         _icon.ToolTipText = state.Text;
 
         // Redraw only when something visible changed (the ring moves in 5 % steps).

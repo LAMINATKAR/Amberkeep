@@ -19,9 +19,9 @@ public sealed class AppServices
         Time = time;
         Store = new AppStore(baseDirectory, fileSystem, time);
         History = new HistoryStore(Store, fileSystem);
-        Registry = new TargetRegistry(fileSystem, volumes, time);
+        Registry = new TargetRegistry(fileSystem, volumes, time) { ProgramDirectory = Store.BaseDirectory };
         Locator = new TargetLocator(fileSystem, volumes);
-        Runner = new JobRunner(fileSystem, volumes, History, time);
+        Runner = new JobRunner(fileSystem, volumes, History, time) { ProgramDirectory = Store.BaseDirectory };
         Cleanup = new CleanupService(Store, History, fileSystem, volumes, autostart);
     }
 

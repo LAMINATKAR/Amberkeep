@@ -13,12 +13,34 @@ public sealed record LoadResult(AppConfig? Config, string? Warning, string? Erro
 /// <summary>
 /// Files Amberkeep keeps next to its executable (SPEC 5): <c>amberkeep.json</c>, <c>history/</c>, <c>state/</c>.
 /// </summary>
-public sealed class AppStore(string baseDirectory, IWritableFileSystem fileSystem, TimeProvider timeProvider)
+public sealed partial class AppStore(string baseDirectory, IWritableFileSystem fileSystem, TimeProvider timeProvider)
 {
     public const string ConfigFileName = "amberkeep.json";
     public const string HistoryFolderName = "history";
     public const string StateFolderName = "state";
     internal const string WriteProbePrefix = ".amberkeep-write-test-";
+
+    /// <summary>Log of unexpected errors, written by the app next to the executable.</summary>
+    public const string ErrorLogFileName = "amberkeep-error.log";
+
+    /// <summary>
+    /// A file next to the executable that Amberkeep wrote: <c>amberkeep.json</c>, its set-aside damaged copies
+    /// (<c>.bad-&lt;time&gt;</c>), interrupted saves (<c>.&lt;id&gt;.tmp</c>), write tests and the error log.
+    /// A user's own copy such as <c>amberkeep.json.mine</c> is not.
+    /// </summary>
+    public static bool IsOwnFile(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return name.Equals(ConfigFileName, StringComparison.OrdinalIgnoreCase)
+               || name.Equals(ErrorLogFileName, StringComparison.OrdinalIgnoreCase)
+               || name.StartsWith(WriteProbePrefix, StringComparison.OrdinalIgnoreCase)
+               || OwnConfigVariant().IsMatch(name);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"^amberkeep\.json\.(bad-\d{8}-\d{6}(-\d+)?|[0-9a-f]{32}\.tmp)$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex OwnConfigVariant();
 
     private bool _saveBlocked;
 
@@ -35,9 +57,8 @@ public sealed class AppStore(string baseDirectory, IWritableFileSystem fileSyste
 
     public string StateDirectory => Path.Join(BaseDirectory, StateFolderName);
 
-    /// <summary>Folder of the running executable – where the app keeps its data.</summary>
-    public static string ExecutableDirectory =>
-        Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
+    /// <summary>Folder of the running executable – where the app keeps its data (also for a single-file build).</summary>
+    public static string ExecutableDirectory => Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
 
     /// <summary>Checks that files can be written next to the program; returns the problem, or null.</summary>
     public string? CheckWritable()
@@ -59,6 +80,28 @@ public sealed class AppStore(string baseDirectory, IWritableFileSystem fileSyste
         }
     }
 
+    private static string NewerVersionMessage(int version) =>
+        $"Settings were saved by a newer version of Amberkeep (format {version}). Update Amberkeep; the file was left untouched.";
+
+    /// <summary>Only the format version of the file, read without the rest; null when it cannot be read.</summary>
+    private int? ReadVersion()
+    {
+        try
+        {
+            using var stream = fileSystem.OpenRead(ConfigPath);
+            using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                   && document.RootElement.TryGetProperty("version", out var version)
+                   && version.TryGetInt32(out var number)
+                ? number
+                : null;
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     public LoadResult Load()
     {
         if (fileSystem.GetEntry(ConfigPath) is null)
@@ -73,6 +116,13 @@ public sealed class AppStore(string baseDirectory, IWritableFileSystem fileSyste
         }
         catch (JsonException ex)
         {
+            // A newer version may have added values this version cannot read: that is not damage.
+            if (ReadVersion() > AppConfig.CurrentVersion)
+            {
+                _saveBlocked = true;
+                return new LoadResult(null, null, NewerVersionMessage(ReadVersion()!.Value));
+            }
+
             return SetAsideDamaged($"the file is not valid ({ex.Message})");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -88,13 +138,15 @@ public sealed class AppStore(string baseDirectory, IWritableFileSystem fileSyste
         if (config.Version > AppConfig.CurrentVersion)
         {
             _saveBlocked = true;
-            return new LoadResult(
-                null,
-                null,
-                $"Settings were saved by a newer version of Amberkeep (format {config.Version}). Update Amberkeep; the file was left untouched.");
+            return new LoadResult(null, null, NewerVersionMessage(config.Version));
         }
 
-        return new LoadResult(config.Normalized(), null, null);
+        var fixes = new List<string>();
+        var normalized = config.Normalized(fixes);
+        return new LoadResult(
+            normalized,
+            fixes.Count == 0 ? null : "Some settings in amberkeep.json were invalid and were corrected: " + string.Join(" ", fixes),
+            null);
     }
 
     /// <exception cref="InvalidOperationException">The file on disk was written by a newer version and must not be overwritten.</exception>

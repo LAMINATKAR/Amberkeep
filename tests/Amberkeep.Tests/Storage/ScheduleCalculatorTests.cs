@@ -36,11 +36,81 @@ public class ScheduleCalculatorTests
     [Fact]
     public void Weekly_schedule_runs_on_the_given_day()
     {
-        var weekly = new ScheduleConfig { Kind = ScheduleKind.Weekly, DayOfWeek = DayOfWeek.Friday, Time = new TimeOnly(18, 30) };
+        var weekly = new ScheduleConfig { Kind = ScheduleKind.Weekly, DaysOfWeek = [DayOfWeek.Friday], Time = new TimeOnly(18, 30) };
 
         // 10 Nov 2026 is a Tuesday.
         Assert.Equal(Local(2026, 11, 13, 18, 30), ScheduleCalculator.NextOccurrence(weekly, Local(2026, 11, 10, 9, 0), Zone));
         Assert.Equal(Local(2026, 11, 20, 18, 30), ScheduleCalculator.NextOccurrence(weekly, Local(2026, 11, 13, 19, 0), Zone));
+    }
+
+    [Fact]
+    public void Weekly_schedule_with_several_days_runs_on_the_nearest_one()
+    {
+        var monThu = new ScheduleConfig { Kind = ScheduleKind.Weekly, DaysOfWeek = [DayOfWeek.Monday, DayOfWeek.Thursday], Time = new TimeOnly(20, 0) };
+
+        // Tue 10 Nov 2026 → Thu 12; Thu 12 after 20:00 → Mon 16; Sun 15 → Mon 16.
+        Assert.Equal(Local(2026, 11, 12, 20, 0), ScheduleCalculator.NextOccurrence(monThu, Local(2026, 11, 10, 9, 0), Zone));
+        Assert.Equal(Local(2026, 11, 16, 20, 0), ScheduleCalculator.NextOccurrence(monThu, Local(2026, 11, 12, 20, 0), Zone));
+        Assert.Equal(Local(2026, 11, 16, 20, 0), ScheduleCalculator.NextOccurrence(monThu, Local(2026, 11, 15, 23, 0), Zone));
+        Assert.Null(ScheduleCalculator.NextOccurrence(monThu with { DaysOfWeek = [] }, Local(2026, 11, 10, 9, 0), Zone));
+    }
+
+    [Fact]
+    public void Monthly_schedule_runs_on_the_given_day()
+    {
+        var on15 = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 15, Time = new TimeOnly(20, 0) };
+
+        Assert.Equal(Local(2026, 11, 15, 20, 0), ScheduleCalculator.NextOccurrence(on15, Local(2026, 11, 10, 9, 0), Zone));
+        Assert.Equal(Local(2026, 12, 15, 20, 0), ScheduleCalculator.NextOccurrence(on15, Local(2026, 11, 15, 20, 0), Zone));
+        Assert.Equal(Local(2027, 1, 15, 20, 0), ScheduleCalculator.NextOccurrence(on15, Local(2026, 12, 31, 23, 0), Zone));
+    }
+
+    [Theory]
+    [InlineData(2027, 2, 28)] // February
+    [InlineData(2028, 2, 29)] // leap year
+    [InlineData(2027, 4, 30)] // 30-day month
+    [InlineData(2027, 5, 31)]
+    public void Monthly_day_31_runs_on_the_last_day_of_each_month(int year, int month, int lastDay)
+    {
+        var last = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 31, Time = new TimeOnly(20, 0) };
+
+        var next = ScheduleCalculator.NextOccurrence(last, Local(year, month, 1, 0, 0), Zone);
+
+        Assert.Equal(Local(year, month, lastDay, 20, 0), next);
+    }
+
+    [Fact]
+    public void Monthly_day_30_in_february_runs_on_its_last_day_and_then_on_the_30th()
+    {
+        var on30 = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 30, Time = new TimeOnly(8, 0) };
+
+        var feb = ScheduleCalculator.NextOccurrence(on30, Local(2027, 2, 10, 0, 0), Zone)!.Value;
+        Assert.Equal(Local(2027, 2, 28, 8, 0), feb);
+        Assert.Equal(Local(2027, 3, 30, 8, 0), ScheduleCalculator.NextOccurrence(on30, feb, Zone));
+    }
+
+    [Fact]
+    public void Missed_monthly_run_is_due_once()
+    {
+        var on1 = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 1, Time = new TimeOnly(20, 0) };
+        var created = Local(2026, 9, 20, 10, 0);
+
+        // The computer was off on 1 Nov; on 5 Nov it is due, and after that run not again until 1 Dec.
+        Assert.True(ScheduleCalculator.IsDue(on1, lastRun: Local(2026, 10, 1, 20, 1), created, Local(2026, 11, 5, 9, 0), Zone));
+        Assert.False(ScheduleCalculator.IsDue(on1, lastRun: Local(2026, 11, 5, 9, 1), created, Local(2026, 11, 30, 9, 0), Zone));
+        Assert.True(ScheduleCalculator.IsDue(on1, lastRun: Local(2026, 11, 5, 9, 1), created, Local(2026, 12, 1, 20, 0), Zone));
+    }
+
+    [Fact]
+    public void Monthly_time_skipped_by_daylight_saving_moves_past_the_gap()
+    {
+        // 29 Mar 2026 02:30 does not exist.
+        var on29 = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 29, Time = new TimeOnly(2, 30) };
+
+        var next = ScheduleCalculator.NextOccurrence(on29, Local(2026, 3, 1, 0, 0), Zone)!.Value;
+
+        Assert.Equal(new DateTime(2026, 3, 29), next.Date);
+        Assert.True(next.Hour >= 3);
     }
 
     [Fact]
@@ -102,7 +172,30 @@ public class ScheduleCalculatorTests
     {
         Assert.Equal("Daily 20:00", ScheduleCalculator.Describe(Daily20));
         Assert.Equal("Every 6 h", ScheduleCalculator.Describe(new ScheduleConfig { Kind = ScheduleKind.Interval }));
+        var weekly = new ScheduleConfig { Kind = ScheduleKind.Weekly, Time = new TimeOnly(20, 0) };
+        Assert.Equal("Fridays 20:00", ScheduleCalculator.Describe(weekly with { DaysOfWeek = [DayOfWeek.Friday] }));
+        Assert.Equal("Mon, Thu 20:00", ScheduleCalculator.Describe(weekly with { DaysOfWeek = [DayOfWeek.Thursday, DayOfWeek.Monday] }));
+        Assert.Equal("Weekdays 20:00", ScheduleCalculator.Describe(weekly with { DaysOfWeek = [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday] }));
+        Assert.Equal("Weekends 20:00", ScheduleCalculator.Describe(weekly with { DaysOfWeek = [DayOfWeek.Sunday, DayOfWeek.Saturday] }));
+        Assert.Equal("Daily 20:00", ScheduleCalculator.Describe(weekly with { DaysOfWeek = Enum.GetValues<DayOfWeek>() }));
+        var monthly = new ScheduleConfig { Kind = ScheduleKind.Monthly, Time = new TimeOnly(8, 5) };
+        Assert.Equal("Monthly on the 1st, 08:05", ScheduleCalculator.Describe(monthly));
+        Assert.Equal("Monthly on the 22nd, 08:05", ScheduleCalculator.Describe(monthly with { DayOfMonth = 22 }));
+        Assert.Equal("Monthly on the last day, 08:05", ScheduleCalculator.Describe(monthly with { DayOfMonth = 31 }));
     }
+
+    [Theory]
+    [InlineData(1, "1st")]
+    [InlineData(2, "2nd")]
+    [InlineData(3, "3rd")]
+    [InlineData(4, "4th")]
+    [InlineData(11, "11th")]
+    [InlineData(12, "12th")]
+    [InlineData(13, "13th")]
+    [InlineData(21, "21st")]
+    [InlineData(23, "23rd")]
+    [InlineData(31, "31st")]
+    public void Ordinals(int day, string expected) => Assert.Equal(expected, ScheduleCalculator.Ordinal(day));
 
     private static DateTimeOffset Local(int y, int m, int d, int h, int min)
     {

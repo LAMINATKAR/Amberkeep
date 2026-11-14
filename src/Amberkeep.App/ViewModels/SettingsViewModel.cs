@@ -212,7 +212,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 $"{Format.Count(existing, "backup in the file already exists", "backups in the file already exist")} here. Replace them with the imported version?",
                 "Replace");
 
-            var result = ConfigTransfer.Merge(_shell.Services.Config, imported, replace);
+            var result = ConfigTransfer.Merge(_shell.Services.Config, imported, replace, _shell.Services.Store.BaseDirectory);
             if (result.Added.Count + result.Replaced.Count > 0)
             {
                 _shell.Services.Save(result.Config);
@@ -259,6 +259,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        // Not while a backup runs. Afterwards the gate lets no new work start until Amberkeep closes, so nothing
+        // (history, a remembered target location) is written back after the clean-up.
+        if (!_shell.Services.Gate.TryEnter())
+        {
+            await JobFlow.ShowBusyAsync(_shell);
+            return;
+        }
+
         var report = _shell.Services.Cleanup.CleanUpEverything(_shell.Services.Config, answers[0], answers[0] && answers[1]);
         var lines = report.NotCleaned.Concat(report.Errors).ToList();
         if (lines.Count > 0)
@@ -266,6 +274,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             await _shell.Dialogs.ShowMessageAsync("Some files could not be removed", string.Join(Environment.NewLine, lines));
         }
 
+        _shell.Services.Gate.ExitAndStop();
         _shell.RequestExit();
     }
 }

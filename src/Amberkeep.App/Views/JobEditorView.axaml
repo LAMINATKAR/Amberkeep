@@ -33,7 +33,7 @@
             <TextBlock Classes="section" Text="What to back up" />
             <TextBlock Classes="muted small" Text="Name" />
             <TextBox Text="{Binding Name}" PlaceholderText="e.g. Photos" />
-            <TextBlock Classes="muted small" Text="Folder" />
+            <TextBlock Classes="muted small" Text="Source folder" />
             <Grid ColumnDefinitions="*,Auto">
               <TextBox Classes="mono" Text="{Binding SourcePath}" PlaceholderText="Folder to back up" />
               <Button Grid.Column="1" Content="Browse…" Margin="8,0,0,0" Command="{Binding BrowseSourceCommand}" />
@@ -87,8 +87,9 @@
             <TextBlock Classes="section" Text="How to compare" />
             <CheckBox IsChecked="{Binding CompareContent}">
               <StackPanel>
-                <TextBlock Text="Compare file contents" />
-                <TextBlock Classes="muted small" Text="Exact but slower. By default files are compared by size and time." />
+                <TextBlock Text="Compare file contents byte by byte" />
+                <TextBlock Classes="muted small" TextWrapping="Wrap"
+                           Text="Files of the same size are read on both sides and compared byte by byte – exact, but slower. Otherwise a file counts as unchanged when its size and modification time (±2 s) match." />
               </StackPanel>
             </CheckBox>
             <CheckBox IsChecked="{Binding IgnoreOneHourShift}">
@@ -134,13 +135,17 @@
               </StackPanel>
             </CheckBox>
             <CheckBox IsChecked="{Binding GuardEnabled}">
-              <TextBlock Text="Ask before removing many files" />
+              <StackPanel>
+                <TextBlock Text="Ask before removing many files" />
+                <TextBlock Classes="muted small" TextWrapping="Wrap"
+                           Text="Asks when either limit is reached. The share counts only from 20 removed files. 100 % or 0 files switches that limit off." />
+              </StackPanel>
             </CheckBox>
             <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0" IsEnabled="{Binding GuardEnabled}">
               <TextBlock Text="when more than" VerticalAlignment="Center" />
               <NumericUpDown Value="{Binding GuardPercent}" Minimum="0" Maximum="100" Increment="5" FormatString="0" Width="110" />
-              <TextBlock Text="% of the files and at least" VerticalAlignment="Center" />
-              <NumericUpDown Value="{Binding GuardMinCount}" Minimum="0" Maximum="1000000" Increment="10" FormatString="0" Width="130" />
+              <TextBlock Text="% of the files or at least" VerticalAlignment="Center" />
+              <NumericUpDown Value="{Binding GuardCount}" Minimum="0" Maximum="1000000" Increment="100" FormatString="0" Width="130" />
               <TextBlock Text="files would be removed" VerticalAlignment="Center" />
             </StackPanel>
             <CheckBox IsChecked="{Binding VerifyCopies}">
@@ -159,7 +164,8 @@
             <TextBlock Classes="muted small" TextWrapping="Wrap"
                        Text="Amberkeep must be running (it can stay in the tray). With 'Review changes before every run' switched on, automatic runs only prepare the changes and ask you to approve them." />
             <CheckBox IsChecked="{Binding RunOnConnect}" Content="When a target disk is connected" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
+            <!-- Wraps when the window is narrow: kind, weekdays or day of month, "at", time. -->
+            <WrapPanel ItemSpacing="8" LineSpacing="8">
               <ComboBox ItemsSource="{Binding ScheduleChoices}" SelectedItem="{Binding ScheduleKind}" MinWidth="180">
                 <ComboBox.ItemTemplate>
                   <DataTemplate x:DataType="vm:ScheduleChoice">
@@ -167,18 +173,35 @@
                   </DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
-              <ComboBox ItemsSource="{Binding DayChoices}" SelectedItem="{Binding ScheduleDay}" MinWidth="140" IsVisible="{Binding ShowDay}">
+              <ItemsControl ItemsSource="{Binding DayToggles}" IsVisible="{Binding ShowDays}" VerticalAlignment="Center">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="4" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DayToggle">
+                    <ToggleButton Classes="filter" Content="{Binding Label}" IsChecked="{Binding IsSelected}" MinWidth="44" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <ComboBox ItemsSource="{Binding MonthDayChoices}" SelectedItem="{Binding ScheduleDayOfMonth}" MinWidth="150" MaxDropDownHeight="320"
+                        IsVisible="{Binding ShowDayOfMonth}">
                 <ComboBox.ItemTemplate>
-                  <DataTemplate x:DataType="vm:DayChoice">
+                  <DataTemplate x:DataType="vm:MonthDayChoice">
                     <TextBlock Text="{Binding Label}" />
                   </DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
-              <TextBlock Text="at" VerticalAlignment="Center" IsVisible="{Binding ShowDay}" />
-              <TimePicker SelectedTime="{Binding ScheduleTime}" ClockIdentifier="24HourClock" IsVisible="{Binding ShowTime}" />
+              <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowTime}">
+                <TextBlock Text="at" VerticalAlignment="Center" IsVisible="{Binding ShowAt}" />
+                <TimePicker SelectedTime="{Binding ScheduleTime}" ClockIdentifier="24HourClock" MinWidth="0" Width="160" />
+              </StackPanel>
               <NumericUpDown Value="{Binding IntervalHours}" Minimum="1" Maximum="744" FormatString="0" Width="110" IsVisible="{Binding ShowInterval}" />
               <TextBlock Text="hours" VerticalAlignment="Center" IsVisible="{Binding ShowInterval}" />
-            </StackPanel>
+            </WrapPanel>
+            <TextBlock Classes="muted small" TextWrapping="Wrap" IsVisible="{Binding ShowDayOfMonth}"
+                       Text="In a month without this day (e.g. the 31st in April), the run is on the month's last day." />
             <TextBlock Classes="muted small" TextWrapping="Wrap"
                        Text="A scheduled run that was missed (computer off, disk not connected) runs as soon as possible afterwards." />
           </StackPanel>

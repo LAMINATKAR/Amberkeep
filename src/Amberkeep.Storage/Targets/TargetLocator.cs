@@ -51,24 +51,22 @@ public sealed class TargetLocator(IFileSystem fileSystem, IVolumeProvider volume
             };
         }
 
-        if (target.RelativePath.Length > 0)
+        // Also for a target at the root of a disk (empty relative path): the marker is then in the root itself.
+        var comparison = CaseSensitivity.Auto.IsCaseSensitive() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        foreach (var root in volumes.GetVolumeRoots())
         {
-            var comparison = CaseSensitivity.Auto.IsCaseSensitive() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-            foreach (var root in volumes.GetVolumeRoots())
+            var candidate = Path.Join(root, target.RelativePath);
+            if (string.Equals(
+                    Path.TrimEndingDirectorySeparator(candidate),
+                    Path.TrimEndingDirectorySeparator(target.LastKnownPath),
+                    comparison))
             {
-                var candidate = Path.Join(root, target.RelativePath);
-                if (string.Equals(
-                        Path.TrimEndingDirectorySeparator(candidate),
-                        Path.TrimEndingDirectorySeparator(target.LastKnownPath),
-                        comparison))
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                if (fileSystem.DirectoryExists(candidate) && MarkerFile.BelongsTo(fileSystem, candidate, target.Id))
-                {
-                    return TargetStatus.Connected(candidate);
-                }
+            if (fileSystem.DirectoryExists(candidate) && MarkerFile.BelongsTo(fileSystem, candidate, target.Id))
+            {
+                return TargetStatus.Connected(candidate);
             }
         }
 

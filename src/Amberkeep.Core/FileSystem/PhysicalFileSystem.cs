@@ -99,6 +99,13 @@ public sealed class PhysicalFileSystem : IWritableFileSystem
 
     public void DeleteDirectoryTree(string path)
     {
+        // A link given as the folder itself: deleting "its content" would delete whatever it points to.
+        var root = new DirectoryInfo(path);
+        if ((root.Attributes & FileAttributes.ReparsePoint) != 0 && IsLink(root))
+        {
+            throw new IOException($"Refusing to delete through a link or junction: {path}");
+        }
+
         foreach (var info in new DirectoryInfo(path).EnumerateFileSystemInfos("*", ListOptions))
         {
             var isDirectory = (info.Attributes & FileAttributes.Directory) != 0;

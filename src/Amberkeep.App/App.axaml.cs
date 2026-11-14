@@ -13,6 +13,9 @@ namespace Amberkeep.App;
 
 public sealed partial class App : Application
 {
+    /// <summary>How long Quit waits for a running backup to stop and clean up.</summary>
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
+
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private AppServices? _services;
     private MainViewModel? _main;
@@ -21,6 +24,7 @@ public sealed partial class App : Application
     private AutomationEngine? _automation;
     private TrayService? _tray;
     private bool _quitting;
+    private bool _showingError;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -37,6 +41,24 @@ public sealed partial class App : Application
     private void Start(IClassicDesktopStyleApplicationLifetime desktop)
     {
         _desktop = desktop;
+        ErrorLog.Configure(AppStore.ExecutableDirectory);
+        Dispatcher.UIThread.UnhandledException += (_, e) =>
+        {
+            e.Handled = true;
+            ReportUnexpected(e.Exception, "User interface");
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            e.SetObserved();
+            ErrorLog.Write(e.Exception, "Background task");
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception ex)
+            {
+                ErrorLog.Write(ex, "Unhandled");
+            }
+        };
 
         // The app lives on in the tray; it ends only through Quit (or closing the window when "close to tray" is off).
         desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -64,8 +86,10 @@ public sealed partial class App : Application
 
         window.Closing += (_, e) =>
         {
-            if (_quitting)
+            // Sign-out, shutdown and the app's own Shutdown() must never be held up by the tray behaviour.
+            if (_quitting || e.CloseReason != WindowCloseReason.WindowClosing)
             {
+                StopForShutdown();
                 return;
             }
 
@@ -79,6 +103,9 @@ public sealed partial class App : Application
                 Quit(force: false);
             }
         };
+
+        // Windows sign-out or shutdown: stop a running backup safely and let the session end.
+        desktop.ShutdownRequested += (_, _) => StopForShutdown();
 
         if (Program.Instance is { } instance)
         {
@@ -143,7 +170,46 @@ public sealed partial class App : Application
         }
 
         _quitting = true;
+        _automation?.Dispose();
         _runner?.Cancel();
+        if (_services is not null)
+        {
+            // Lets the run clean up its temporary files and write its history record.
+            await _services.Gate.StopAsync(StopTimeout);
+        }
+
         _desktop.Shutdown();
+    }
+
+    // No waiting here: the system ends the session soon; the run is cancelled and stops between two files.
+    private void StopForShutdown()
+    {
+        _quitting = true;
+        _automation?.Dispose();
+        _runner?.Cancel();
+        _ = _services?.Gate.StopAsync(TimeSpan.Zero);
+    }
+
+    private async void ReportUnexpected(Exception exception, string context)
+    {
+        ErrorLog.Write(exception, context);
+        if (_showingError || _main is null || _quitting)
+        {
+            return;
+        }
+
+        _showingError = true;
+        try
+        {
+            ShowWindow();
+            await _main.Dialogs.ShowMessageAsync(
+                "Something went wrong",
+                $"{exception.Message}{Environment.NewLine}{Environment.NewLine}The details were saved to {AppStore.ErrorLogFileName} next to Amberkeep. Your backups are not affected by this message; if a backup was running, check its result in History.");
+            _main.ShowDashboard();
+        }
+        finally
+        {
+            _showingError = false;
+        }
     }
 }

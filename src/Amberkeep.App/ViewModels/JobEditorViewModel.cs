@@ -31,7 +31,20 @@ public sealed record CaseChoice(CaseSensitivity Value, string Label);
 
 public sealed record ScheduleChoice(ScheduleKind Value, string Label);
 
-public sealed record DayChoice(DayOfWeek Value, string Label);
+/// <summary>One weekday button of a weekly schedule.</summary>
+public sealed partial class DayToggle(DayOfWeek value, bool isSelected, Action changed) : ObservableObject
+{
+    [ObservableProperty]
+    private bool _isSelected = isSelected;
+
+    public DayOfWeek Value { get; } = value;
+
+    public string Label { get; } = value.ToString()[..3];
+
+    partial void OnIsSelectedChanged(bool value) => changed();
+}
+
+public sealed record MonthDayChoice(int Value, string Label);
 
 /// <summary>Creates or edits a backup job (SPEC 6.2).</summary>
 public sealed partial class JobEditorViewModel : ObservableObject
@@ -58,7 +71,7 @@ public sealed partial class JobEditorViewModel : ObservableObject
         _verifyCopies = _original.VerifyCopies;
         _guardEnabled = _original.MassRemovalGuard.Enabled;
         _guardPercent = _original.MassRemovalGuard.Percent;
-        _guardMinCount = _original.MassRemovalGuard.MinCount;
+        _guardCount = _original.MassRemovalGuard.Count;
         _archiveEnabled = _original.Archive.Enabled;
         _keepArchiveForever = _original.Archive.RetentionDays is null;
         _retentionDays = _original.Archive.RetentionDays ?? 30;
@@ -66,7 +79,8 @@ public sealed partial class JobEditorViewModel : ObservableObject
         _runOnConnect = trigger.OnTargetConnected;
         _scheduleKind = ScheduleChoices.First(c => c.Value == trigger.Schedule.Kind);
         _scheduleTime = trigger.Schedule.Time.ToTimeSpan();
-        _scheduleDay = DayChoices.First(d => d.Value == trigger.Schedule.DayOfWeek);
+        DayToggles = [.. WeekDays.Select(d => new DayToggle(d, trigger.Schedule.DaysOfWeek.Contains(d), Validate))];
+        _scheduleDayOfMonth = MonthDayChoices.FirstOrDefault(d => d.Value == trigger.Schedule.DayOfMonth) ?? MonthDayChoices[0];
         _intervalHours = trigger.Schedule.IntervalHours;
 
         Targets = new ObservableCollection<EditorTargetViewModel>(
@@ -122,7 +136,7 @@ public sealed partial class JobEditorViewModel : ObservableObject
     private decimal? _guardPercent;
 
     [ObservableProperty]
-    private decimal? _guardMinCount;
+    private decimal? _guardCount;
 
     [ObservableProperty]
     private bool _archiveEnabled;
@@ -143,7 +157,7 @@ public sealed partial class JobEditorViewModel : ObservableObject
 
     partial void OnGuardPercentChanged(decimal? value) => Validate();
 
-    partial void OnGuardMinCountChanged(decimal? value) => Validate();
+    partial void OnGuardCountChanged(decimal? value) => Validate();
 
     partial void OnRetentionDaysChanged(decimal? value) => Validate();
 
@@ -162,7 +176,7 @@ public sealed partial class JobEditorViewModel : ObservableObject
             .ToList(),
         RequireApproval = RequireApproval,
         VerifyCopies = VerifyCopies,
-        MassRemovalGuard = new MassRemovalGuard(GuardEnabled, (int)(GuardPercent ?? 50), (int)(GuardMinCount ?? 100)),
+        MassRemovalGuard = new MassRemovalGuard(GuardEnabled, (int)(GuardPercent ?? 50), (int)(GuardCount ?? 1000)),
         Archive = new ArchiveSettings
         {
             Enabled = ArchiveEnabled,
@@ -175,7 +189,8 @@ public sealed partial class JobEditorViewModel : ObservableObject
             {
                 Kind = ScheduleKind.Value,
                 Time = TimeOnly.FromTimeSpan(ScheduleTime ?? new TimeSpan(20, 0, 0)),
-                DayOfWeek = ScheduleDay.Value,
+                DaysOfWeek = DayToggles.Where(d => d.IsSelected).Select(d => d.Value).ToList(),
+                DayOfMonth = ScheduleDayOfMonth.Value,
                 IntervalHours = (int)(IntervalHours ?? 6),
             },
         },
@@ -187,36 +202,49 @@ public sealed partial class JobEditorViewModel : ObservableObject
         new(Storage.Config.ScheduleKind.None, "No schedule"),
         new(Storage.Config.ScheduleKind.Daily, "Every day at"),
         new(Storage.Config.ScheduleKind.Weekly, "Every week on"),
+        new(Storage.Config.ScheduleKind.Monthly, "Every month on the"),
         new(Storage.Config.ScheduleKind.Interval, "Every few hours"),
     ];
 
-    public IReadOnlyList<DayChoice> DayChoices { get; } =
-        [.. new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday }
-            .Select(d => new DayChoice(d, d.ToString()))];
+    private static readonly DayOfWeek[] WeekDays =
+        [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
+
+    /// <summary>Monday to Sunday; the selected ones make up a weekly schedule.</summary>
+    public IReadOnlyList<DayToggle> DayToggles { get; }
+
+    public IReadOnlyList<MonthDayChoice> MonthDayChoices { get; } =
+        [.. Enumerable.Range(1, 31).Select(d => new MonthDayChoice(d, d == 31 ? "31st / last day" : ScheduleCalculator.Ordinal(d)))];
 
     [ObservableProperty]
     private bool _runOnConnect;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowTime), nameof(ShowDay), nameof(ShowInterval))]
+    [NotifyPropertyChangedFor(nameof(ShowTime), nameof(ShowDays), nameof(ShowDayOfMonth), nameof(ShowAt), nameof(ShowInterval))]
     private ScheduleChoice _scheduleKind = null!;
 
     [ObservableProperty]
     private TimeSpan? _scheduleTime;
 
     [ObservableProperty]
-    private DayChoice _scheduleDay = null!;
+    private MonthDayChoice _scheduleDayOfMonth;
 
     [ObservableProperty]
     private decimal? _intervalHours;
 
-    public bool ShowTime => ScheduleKind.Value is Storage.Config.ScheduleKind.Daily or Storage.Config.ScheduleKind.Weekly;
+    public bool ShowTime => ScheduleKind.Value is Storage.Config.ScheduleKind.Daily or Storage.Config.ScheduleKind.Weekly or Storage.Config.ScheduleKind.Monthly;
 
-    public bool ShowDay => ScheduleKind.Value == Storage.Config.ScheduleKind.Weekly;
+    public bool ShowDays => ScheduleKind.Value == Storage.Config.ScheduleKind.Weekly;
+
+    public bool ShowDayOfMonth => ScheduleKind.Value == Storage.Config.ScheduleKind.Monthly;
+
+    /// <summary>"at" between the day(s) and the time; the daily label already ends with it.</summary>
+    public bool ShowAt => ShowDays || ShowDayOfMonth;
 
     public bool ShowInterval => ScheduleKind.Value == Storage.Config.ScheduleKind.Interval;
 
     partial void OnIntervalHoursChanged(decimal? value) => Validate();
+
+    partial void OnScheduleKindChanged(ScheduleChoice value) => Validate();
 
     [RelayCommand]
     private async Task BrowseSourceAsync()
@@ -247,7 +275,9 @@ public sealed partial class JobEditorViewModel : ObservableObject
         }
 
         var job = BuildJob();
-        if (_shell.Services.Config.WithJob(job).FindPathConflict(folder, pendingJob: job) is { } conflict)
+        var config = _shell.Services.Config.WithJob(job);
+        var programDirectory = _shell.Services.Store.BaseDirectory;
+        if (await Task.Run(() => config.FindPathConflict(folder, pendingJob: job, programDirectory: programDirectory, onDisk: true)) is { } conflict)
         {
             await _shell.Dialogs.ShowMessageAsync("Cannot use this folder", conflict);
             return;
@@ -314,6 +344,51 @@ public sealed partial class JobEditorViewModel : ObservableObject
     {
         var services = _shell.Services;
 
+        // 0. Where the folders really are (junctions, links, drive aliases): checked once here, not on every
+        //    keystroke, and off the UI thread, because an unreachable network folder can take a while to answer.
+        var draft = BuildJob();
+        var onDisk = await Task.Run(() => services.Config.Validate(draft, services.Store.BaseDirectory, onDisk: true));
+        if (onDisk.Count > 0)
+        {
+            await _shell.Dialogs.ShowMessageAsync("The backup could not be saved", string.Join(Environment.NewLine, onDisk));
+            return;
+        }
+
+        // Not while a backup runs: saving writes markers and removes the files of removed targets. The gate is
+        // released before any message is shown, so an open dialog never holds up automatic runs.
+        if (!services.Gate.TryEnter())
+        {
+            await JobFlow.ShowBusyAsync(_shell);
+            return;
+        }
+
+        SaveResult result;
+        try
+        {
+            result = await SaveCoreAsync();
+        }
+        finally
+        {
+            services.Gate.Exit();
+        }
+
+        if (result.Message is { } message)
+        {
+            await _shell.Dialogs.ShowMessageAsync(result.Title!, message);
+        }
+
+        if (result.Saved)
+        {
+            _shell.ShowDashboard();
+        }
+    }
+
+    private sealed record SaveResult(bool Saved, string? Title = null, string? Message = null);
+
+    private async Task<SaveResult> SaveCoreAsync()
+    {
+        var services = _shell.Services;
+
         // 1. Markers of new targets. If one fails, the markers written so far are removed again
         //    and nothing has been saved yet.
         var job = BuildJob() with { Targets = Targets.Where(t => !t.IsNew).Select(t => t.Target).ToList() };
@@ -322,8 +397,9 @@ public sealed partial class JobEditorViewModel : ObservableObject
         {
             foreach (var added in Targets.Where(t => t.IsNew).ToList())
             {
-                var target = services.Registry.AddTarget(
-                    services.Config.WithJob(job), job, added.Path, added.Name, replaceForeignMarker: added.TakeOver);
+                var pending = job;
+                var target = await Task.Run(() => services.Registry.AddTarget(
+                    services.Config.WithJob(pending), pending, added.Path, added.Name, replaceForeignMarker: added.TakeOver));
                 created.Add((added, target));
                 job = job.WithTarget(target);
             }
@@ -338,8 +414,7 @@ public sealed partial class JobEditorViewModel : ObservableObject
                 services.Cleanup.CleanTargetFolder(job, target, removeMarker: true, removeArchive: false);
             }
 
-            await _shell.Dialogs.ShowMessageAsync("The backup could not be saved", ex.Message);
-            return;
+            return new SaveResult(false, "The backup could not be saved", ex.Message);
         }
 
         foreach (var (row, target) in created)
@@ -363,12 +438,9 @@ public sealed partial class JobEditorViewModel : ObservableObject
         }
 
         _removed.Clear();
-        if (problems.Count > 0)
-        {
-            await _shell.Dialogs.ShowMessageAsync("Some files could not be removed", string.Join(Environment.NewLine, problems));
-        }
-
-        _shell.ShowDashboard();
+        return problems.Count > 0
+            ? new SaveResult(true, "Some files could not be removed", string.Join(Environment.NewLine, problems))
+            : new SaveResult(true);
     }
 
     [RelayCommand]
@@ -387,7 +459,7 @@ public sealed partial class JobEditorViewModel : ObservableObject
             return;
         }
 
-        var errors = _shell.Services.Config.Validate(BuildJob()).ToList();
+        var errors = _shell.Services.Config.Validate(BuildJob(), _shell.Services.Store.BaseDirectory).ToList();
         if (_shell.Services.IsReadOnly)
         {
             errors.Add("Settings are read-only: " + _shell.Services.StartupMessage);

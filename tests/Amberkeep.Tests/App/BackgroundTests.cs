@@ -238,14 +238,54 @@ public sealed class BackgroundTests : IDisposable
             RunOnConnect = true,
         };
         editor.ScheduleKind = editor.ScheduleChoices.Single(c => c.Value == ScheduleKind.Weekly);
-        editor.ScheduleDay = editor.DayChoices.Single(d => d.Value == DayOfWeek.Friday);
+        editor.DayToggles.Single(d => d.Value == DayOfWeek.Monday).IsSelected = false;
+        editor.DayToggles.Single(d => d.Value == DayOfWeek.Friday).IsSelected = true;
+        editor.DayToggles.Single(d => d.Value == DayOfWeek.Tuesday).IsSelected = true;
         editor.ScheduleTime = new TimeSpan(18, 30, 0);
 
         var trigger = editor.BuildJob().Trigger;
 
         Assert.True(trigger.OnTargetConnected);
-        Assert.Equal(new ScheduleConfig { Kind = ScheduleKind.Weekly, DayOfWeek = DayOfWeek.Friday, Time = new TimeOnly(18, 30) }, trigger.Schedule);
-        Assert.True(editor.ShowDay && editor.ShowTime && !editor.ShowInterval);
+        Assert.Equal(new ScheduleConfig { Kind = ScheduleKind.Weekly, DaysOfWeek = [DayOfWeek.Tuesday, DayOfWeek.Friday], Time = new TimeOnly(18, 30) }, trigger.Schedule);
+        Assert.True(editor.ShowDays && editor.ShowAt && editor.ShowTime && !editor.ShowDayOfMonth && !editor.ShowInterval);
+        Assert.True(editor.CanSave);
+    }
+
+    [Fact]
+    public void Editor_needs_a_day_for_a_weekly_schedule()
+    {
+        var (job, _) = _app.SavedJob();
+        var editor = new JobEditorViewModel(_app.Shell, job);
+        editor.ScheduleKind = editor.ScheduleChoices.Single(c => c.Value == ScheduleKind.Weekly);
+        Assert.True(editor.CanSave);
+
+        editor.DayToggles.Single(d => d.Value == DayOfWeek.Monday).IsSelected = false;
+
+        Assert.False(editor.CanSave);
+        Assert.Contains(editor.Errors, e => e.Contains("at least one day", StringComparison.Ordinal));
+
+        // A different schedule kind does not need days.
+        editor.ScheduleKind = editor.ScheduleChoices.Single(c => c.Value == ScheduleKind.Daily);
+        Assert.True(editor.CanSave);
+    }
+
+    [Fact]
+    public void Editor_saves_and_reloads_a_monthly_schedule()
+    {
+        var (job, _) = _app.SavedJob();
+        var editor = new JobEditorViewModel(_app.Shell, job);
+        editor.ScheduleKind = editor.ScheduleChoices.Single(c => c.Value == ScheduleKind.Monthly);
+        editor.ScheduleDayOfMonth = editor.MonthDayChoices.Single(d => d.Value == 31);
+        editor.ScheduleTime = new TimeSpan(7, 15, 0);
+
+        var saved = editor.BuildJob();
+        Assert.Equal(new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 31, Time = new TimeOnly(7, 15) }, saved.Trigger.Schedule);
+        Assert.True(editor.ShowDayOfMonth && editor.ShowAt && editor.ShowTime && !editor.ShowDays);
+        Assert.Equal("31st / last day", editor.ScheduleDayOfMonth.Label);
+
+        var reopened = new JobEditorViewModel(_app.Shell, saved);
+        Assert.Equal(31, reopened.ScheduleDayOfMonth.Value);
+        Assert.Equal(ScheduleKind.Monthly, reopened.ScheduleKind.Value);
     }
 
     [Fact]

@@ -12,6 +12,7 @@ using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 var output = Path.GetFullPath(args.Length > 0 ? args[0] : Path.Combine("sandbox", "screenshots"));
 Directory.CreateDirectory(output);
@@ -38,6 +39,11 @@ foreach (var (variant, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeV
     Render(empty, empty.Dashboard, $"02-dashboard-empty-{suffix}");
 
     Render(main, new JobEditorViewModel(main, sample.Services.Config.Jobs[0]), $"03-editor-{suffix}", height: 1800);
+    var photos0 = sample.Services.Config.Jobs[0];
+    var weeklyJob = photos0 with { Trigger = photos0.Trigger with { Schedule = new ScheduleConfig { Kind = ScheduleKind.Weekly, DaysOfWeek = [DayOfWeek.Monday, DayOfWeek.Thursday], Time = new TimeOnly(20, 0) } } };
+    Render(main, new JobEditorViewModel(main, weeklyJob), $"03b-editor-weekly-{suffix}", scrollToEnd: true);
+    var monthlyJob = photos0 with { Trigger = photos0.Trigger with { Schedule = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 31, Time = new TimeOnly(20, 0) } } };
+    Render(main, new JobEditorViewModel(main, monthlyJob), $"03c-editor-monthly-{suffix}", scrollToEnd: true);
     Render(main, new DiffViewModel(main, sample.Diff, "Photos → External HDD", false, _ => Task.CompletedTask), $"04-diff-{suffix}");
     Render(main, new BusyViewModel("Analyzing", "Photos → External HDD") { Status = "Scanning…  12,408 items in the source, 11,950 on the target" }, $"05-busy-{suffix}");
 
@@ -125,7 +131,7 @@ iconWindow.CaptureRenderedFrame()?.Save(Path.Combine(output, "15-tray-icons.png"
 Console.WriteLine($"Screenshots written to {output}");
 return 0;
 
-void Render(MainViewModel main, object page, string name, int width = 1120, int height = 780)
+void Render(MainViewModel main, object page, string name, int width = 1120, int height = 780, bool scrollToEnd = false)
 {
     main.CurrentPage = page;
     var window = new MainWindow { DataContext = main, Width = width, Height = height };
@@ -134,6 +140,13 @@ void Render(MainViewModel main, object page, string name, int width = 1120, int 
     {
         Dispatcher.UIThread.RunJobs();
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        if (scrollToEnd && i == 1)
+        {
+            foreach (var viewer in window.GetVisualDescendants().OfType<Avalonia.Controls.ScrollViewer>())
+            {
+                viewer.ScrollToEnd();
+            }
+        }
     }
 
     var frame = window.CaptureRenderedFrame();

@@ -3,6 +3,7 @@
              xmlns:vm="using:Amberkeep.App.ViewModels"
              x:Class="Amberkeep.App.Views.OneTimeRunView"
              x:DataType="vm:OneTimeRunViewModel">
+  <!-- Labels and hints match the backup editor (JobEditorView) wherever the option is the same. -->
   <ScrollViewer>
     <StackPanel Margin="28,22,28,28" Spacing="16" MaxWidth="860">
       <StackPanel Spacing="4">
@@ -13,14 +14,14 @@
 
       <Border Classes="card">
         <StackPanel Spacing="10">
-          <TextBlock Classes="muted small" Text="Copy from" />
+          <TextBlock Classes="muted small" Text="Source folder" />
           <Grid ColumnDefinitions="*,Auto">
-            <TextBox Classes="mono" Text="{Binding SourcePath}" PlaceholderText="Source folder" />
+            <TextBox Classes="mono" Text="{Binding SourcePath}" PlaceholderText="Folder to back up" />
             <Button Grid.Column="1" Content="Browse…" Margin="8,0,0,0" Command="{Binding BrowseSourceCommand}" />
           </Grid>
-          <TextBlock Classes="muted small" Text="Mirror into" />
+          <TextBlock Classes="muted small" Text="Target folder" />
           <Grid ColumnDefinitions="*,Auto">
-            <TextBox Classes="mono" Text="{Binding TargetPath}" PlaceholderText="Target folder" />
+            <TextBox Classes="mono" Text="{Binding TargetPath}" PlaceholderText="Folder that becomes the copy" />
             <Button Grid.Column="1" Content="Browse…" Margin="8,0,0,0" Command="{Binding BrowseTargetCommand}" />
           </Grid>
           <TextBlock Classes="muted small" TextWrapping="Wrap"
@@ -30,10 +31,35 @@
 
       <Border Classes="card">
         <StackPanel Spacing="10">
-          <CheckBox IsChecked="{Binding CompareContent}" Content="Compare file contents (exact, slower)" />
-          <CheckBox IsChecked="{Binding ArchiveEnabled}" Content="Keep replaced and removed files in .amberkeep/archive on the target" />
-          <TextBlock Classes="muted small" Text="Exclusions (one pattern per line)" />
-          <TextBox Classes="mono" Text="{Binding ExclusionsText}" AcceptsReturn="True" Height="110" />
+          <TextBlock Classes="section" Text="How to compare" />
+          <CheckBox IsChecked="{Binding CompareContent}">
+            <StackPanel>
+              <TextBlock Text="Compare file contents byte by byte" />
+              <TextBlock Classes="muted small" TextWrapping="Wrap"
+                         Text="Files of the same size are read on both sides and compared byte by byte – exact, but slower. Otherwise a file counts as unchanged when its size and modification time (±2 s) match." />
+            </StackPanel>
+          </CheckBox>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="section" Text="Exclusions" />
+          <TextBlock Classes="muted small" TextWrapping="Wrap"
+                     Text="One pattern per line. node_modules/ = folder anywhere, *.tmp = files anywhere, /build/ = only at the top. Excluded items are neither copied nor removed on the target." />
+          <TextBox Classes="mono" Text="{Binding ExclusionsText}" AcceptsReturn="True" TextWrapping="NoWrap" Height="110" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="section" Text="Archive" />
+          <CheckBox IsChecked="{Binding ArchiveEnabled}">
+            <StackPanel>
+              <TextBlock Text="Keep replaced and removed files in an archive on the target" />
+              <TextBlock Classes="muted small" Text="Stored in .amberkeep/archive, so a mistake on the source can be undone." />
+            </StackPanel>
+          </CheckBox>
         </StackPanel>
       </Border>
 

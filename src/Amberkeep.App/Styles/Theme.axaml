@@ -134,6 +134,14 @@
     <Setter Property="Background" Value="{DynamicResource SubtleBrush}" />
   </Style>
 
+  <!-- Single-line fields: text, placeholder and caret in the vertical middle (the Fluent default is the top). -->
+  <Style Selector="TextBox">
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBox[AcceptsReturn=True]">
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+  </Style>
+
   <Style Selector="TextBox.mono">
     <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
     <Setter Property="FontSize" Value="12" />

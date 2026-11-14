@@ -42,19 +42,30 @@ public sealed record AppConfig
     /// Finds a source or target of any job (other than <paramref name="ignoreTargetId"/>) that is the same as,
     /// inside, or around <paramref name="path"/>. Nested targets would remove each other's backups.
     /// </summary>
-    public string? FindPathConflict(string path, Guid? ignoreTargetId = null, JobConfig? pendingJob = null)
+    /// <param name="path">The folder to check, normally a target.</param>
+    /// <param name="ignoreTargetId">A target that may be at this path (the one being moved).</param>
+    /// <param name="pendingJob">The job being edited, in place of its saved version.</param>
+    /// <param name="programDirectory">Amberkeep's own folder, which no target may overlap.</param>
+    /// <param name="onDisk">Also compare where the folders really are (junctions, links, drive aliases); touches the disk.</param>
+    public string? FindPathConflict(
+        string path, Guid? ignoreTargetId = null, JobConfig? pendingJob = null, string? programDirectory = null, bool onDisk = false)
     {
+        if (programDirectory is not null && SafetyChecks.CheckOverlap(programDirectory, path, onDisk) is not null)
+        {
+            return $"The folder overlaps the folder of Amberkeep itself ({programDirectory}); a mirror would remove its settings and history.";
+        }
+
         var jobs = pendingJob is null ? Jobs : Jobs.Where(j => j.Id != pendingJob.Id).Append(pendingJob);
         foreach (var job in jobs)
         {
-            if (Path.IsPathFullyQualified(job.SourcePath) && SafetyChecks.CheckOverlap(job.SourcePath, path) is not null)
+            if (Path.IsPathFullyQualified(job.SourcePath) && SafetyChecks.CheckOverlap(job.SourcePath, path, onDisk) is not null)
             {
                 return $"The folder overlaps the source of the backup '{job.Name}' ({job.SourcePath}).";
             }
 
             foreach (var target in job.Targets.Where(t => t.Id != ignoreTargetId && Path.IsPathFullyQualified(t.LastKnownPath)))
             {
-                if (SafetyChecks.CheckOverlap(target.LastKnownPath, path) is not null)
+                if (SafetyChecks.CheckOverlap(target.LastKnownPath, path, onDisk) is not null)
                 {
                     return $"The folder overlaps the target '{target.Name}' of the backup '{job.Name}' ({target.LastKnownPath}).";
                 }
@@ -65,13 +76,24 @@ public sealed record AppConfig
     }
 
     /// <summary>Validates <paramref name="job"/> on its own and against all other jobs.</summary>
-    public IReadOnlyList<string> Validate(JobConfig job)
+    /// <param name="job">The job to check.</param>
+    /// <param name="programDirectory">Amberkeep's own folder: no target may overlap it, and the source may not be inside it.</param>
+    /// <param name="onDisk">Also compare where the folders really are (junctions, links, drive aliases); touches the disk,
+    /// so it is used when saving, not on every keystroke.</param>
+    public IReadOnlyList<string> Validate(JobConfig job, string? programDirectory = null, bool onDisk = false)
     {
         ArgumentNullException.ThrowIfNull(job);
-        var errors = job.Validate().ToList();
+        var errors = job.Validate(onDisk).ToList();
         if (errors.Count > 0)
         {
             return errors;
+        }
+
+        if (programDirectory is not null
+            && PathOverlap.Check(job.SourcePath, programDirectory, CaseSensitivity.Auto.IsCaseSensitive(), onDisk)
+                is PathRelation.Same or PathRelation.SourceInsideTarget)
+        {
+            errors.Add($"The source is the folder of Amberkeep itself or inside it ({programDirectory}).");
         }
 
         var others = this with { Jobs = Jobs.Where(j => j.Id != job.Id).ToList() };
@@ -79,7 +101,7 @@ public sealed record AppConfig
         {
             // Other jobs, plus the job's own other targets.
             var context = others.WithJob(job with { SourcePath = string.Empty });
-            if (context.FindPathConflict(target.LastKnownPath, target.Id) is { } conflict)
+            if (context.FindPathConflict(target.LastKnownPath, target.Id, programDirectory: programDirectory, onDisk: onDisk) is { } conflict)
             {
                 errors.Add($"Target '{target.Name}': {conflict}");
             }
@@ -89,7 +111,7 @@ public sealed record AppConfig
         {
             foreach (var target in other.Targets.Where(t => Path.IsPathFullyQualified(t.LastKnownPath)))
             {
-                if (SafetyChecks.CheckOverlap(job.SourcePath, target.LastKnownPath) is not null)
+                if (SafetyChecks.CheckOverlap(job.SourcePath, target.LastKnownPath, onDisk) is not null)
                 {
                     errors.Add($"The source overlaps the target '{target.Name}' of the backup '{other.Name}'.");
                 }
@@ -99,28 +121,104 @@ public sealed record AppConfig
         return errors;
     }
 
-    /// <summary>Replaces nulls from a hand-edited file with defaults, so the rest of the app can rely on them.</summary>
-    internal AppConfig Normalized() => this with
+    /// <summary>Longest archive retention that can be stored (about 100 years).</summary>
+    public const int MaxRetentionDays = 36_500;
+
+    /// <summary>
+    /// Makes a hand-edited file safe to use: nulls become defaults, values out of range are brought into range
+    /// (never in the direction of deleting more), unknown option values become defaults, and duplicate ids get new
+    /// ones (such a target then has to be located again; it is never written to by mistake).
+    /// </summary>
+    /// <param name="fixes">Receives a short description of every value that had to be changed.</param>
+    internal AppConfig Normalized(List<string>? fixes = null)
     {
-        Settings = Settings ?? new AppSettings(),
-        Jobs = (Jobs ?? []).Where(j => j is not null).Select(j => j with
+        var jobIds = new HashSet<Guid>();
+        var targetIds = new HashSet<Guid>();
+        var jobs = new List<JobConfig>();
+        foreach (var j in (Jobs ?? []).Where(j => j is not null))
         {
-            Name = j.Name ?? string.Empty,
-            SourcePath = j.SourcePath ?? string.Empty,
-            Exclusions = (j.Exclusions ?? []).Where(e => e is not null).ToList(),
-            MassRemovalGuard = j.MassRemovalGuard ?? new MassRemovalGuard(),
-            Archive = j.Archive ?? new ArchiveSettings(),
-            Trigger = (j.Trigger ?? new TriggerConfig()) is var trigger
-                ? trigger with { Schedule = trigger.Schedule ?? new ScheduleConfig() }
-                : new TriggerConfig(),
-            Targets = (j.Targets ?? []).Where(t => t is not null).Select(t => t with
+            var name = j.Name ?? string.Empty;
+            void Fix(string what) => fixes?.Add($"'{name}': {what}");
+
+            var id = j.Id;
+            if (!jobIds.Add(id))
             {
-                Name = t.Name ?? string.Empty,
-                RelativePath = t.RelativePath ?? string.Empty,
-                LastKnownPath = t.LastKnownPath ?? string.Empty,
-            }).ToList(),
-        }).ToList(),
-    };
+                id = Guid.NewGuid();
+                jobIds.Add(id);
+                Fix("the backup had the same id as another one and got a new one.");
+            }
+
+            var archive = j.Archive ?? new ArchiveSettings();
+            if (archive.RetentionDays is < 1)
+            {
+                // Zero or less would delete every archived version after each run; keeping them is the safe side.
+                archive = archive with { RetentionDays = null };
+                Fix("an archive retention below one day was changed to 'keep forever'.");
+            }
+            else if (archive.RetentionDays > MaxRetentionDays)
+            {
+                archive = archive with { RetentionDays = MaxRetentionDays };
+                Fix($"the archive retention was limited to {MaxRetentionDays:N0} days.");
+            }
+
+            var guard = j.MassRemovalGuard ?? new MassRemovalGuard();
+            if (guard.Percent is < 0 or > 100 || guard.Count < 0)
+            {
+                guard = guard with { Percent = Math.Clamp(guard.Percent, 0, 100), Count = Math.Max(0, guard.Count) };
+                Fix("the limits of 'Ask before removing many files' were out of range and were corrected.");
+            }
+
+            var compareMode = Enum.IsDefined(j.CompareMode) ? j.CompareMode : CompareMode.SizeAndTime;
+            var caseSensitivity = Enum.IsDefined(j.CaseSensitivity) ? j.CaseSensitivity : CaseSensitivity.Auto;
+            if (compareMode != j.CompareMode || caseSensitivity != j.CaseSensitivity)
+            {
+                Fix("an unknown comparison option was reset to the default.");
+            }
+
+            var trigger = j.Trigger ?? new TriggerConfig();
+            var schedule = (trigger.Schedule ?? new ScheduleConfig()).Normalized();
+            if (!Enum.IsDefined(schedule.Kind))
+            {
+                schedule = schedule with { Kind = ScheduleKind.None };
+                Fix("an unknown schedule was switched off.");
+            }
+
+            var targets = new List<TargetConfig>();
+            foreach (var t in (j.Targets ?? []).Where(t => t is not null))
+            {
+                var target = t with
+                {
+                    Name = t.Name ?? string.Empty,
+                    RelativePath = t.RelativePath ?? string.Empty,
+                    LastKnownPath = t.LastKnownPath ?? string.Empty,
+                };
+                if (!targetIds.Add(target.Id))
+                {
+                    target = target with { Id = Guid.NewGuid() };
+                    targetIds.Add(target.Id);
+                    Fix($"the target '{target.Name}' had the same id as another target and has to be located again.");
+                }
+
+                targets.Add(target);
+            }
+
+            jobs.Add(j with
+            {
+                Id = id,
+                Name = name,
+                SourcePath = j.SourcePath ?? string.Empty,
+                Exclusions = (j.Exclusions ?? []).Where(e => e is not null).ToList(),
+                CompareMode = compareMode,
+                CaseSensitivity = caseSensitivity,
+                MassRemovalGuard = guard,
+                Archive = archive,
+                Trigger = trigger with { Schedule = schedule },
+                Targets = targets,
+            });
+        }
+
+        return this with { Settings = Settings ?? new AppSettings(), Jobs = jobs };
+    }
 }
 
 public sealed record AppSettings
@@ -150,6 +248,7 @@ public enum ScheduleKind
     None,
     Daily,
     Weekly,
+    Monthly,
     Interval,
 }
 
@@ -158,14 +257,46 @@ public sealed record ScheduleConfig
 {
     public ScheduleKind Kind { get; init; } = ScheduleKind.None;
 
-    /// <summary>Time of day for daily and weekly schedules.</summary>
+    /// <summary>Time of day for daily, weekly and monthly schedules.</summary>
     public TimeOnly Time { get; init; } = new(20, 0);
 
-    /// <summary>Day for weekly schedules.</summary>
-    public DayOfWeek DayOfWeek { get; init; } = DayOfWeek.Monday;
+    /// <summary>Days for weekly schedules; at least one.</summary>
+    public IReadOnlyList<DayOfWeek> DaysOfWeek { get; init; } = [DayOfWeek.Monday];
+
+    /// <summary>Day of the month (1–31) for monthly schedules. A month without that day runs on its last day.</summary>
+    public int DayOfMonth { get; init; } = 1;
 
     /// <summary>Hours between runs for interval schedules.</summary>
     public int IntervalHours { get; init; } = 6;
+
+    /// <summary>The single weekly day of files written before multi-day schedules; moved into <see cref="DaysOfWeek"/> on load.</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("dayOfWeek")]
+    public DayOfWeek? LegacyDayOfWeek { get; init; }
+
+    public bool Equals(ScheduleConfig? other) =>
+        other is not null
+        && Kind == other.Kind
+        && Time == other.Time
+        && DaysOfWeek.SequenceEqual(other.DaysOfWeek)
+        && DayOfMonth == other.DayOfMonth
+        && IntervalHours == other.IntervalHours
+        && LegacyDayOfWeek == other.LegacyDayOfWeek;
+
+    public override int GetHashCode() => HashCode.Combine(Kind, Time, DaysOfWeek.Count, DayOfMonth, IntervalHours);
+
+    /// <summary>Weekly days in calendar order (Monday first), without duplicates; an old single day is taken over.</summary>
+    internal ScheduleConfig Normalized() => this with
+    {
+        DaysOfWeek = (LegacyDayOfWeek is { } legacy ? [legacy] : DaysOfWeek ?? [])
+            .Where(Enum.IsDefined)
+            .Distinct()
+            .OrderBy(MondayFirst)
+            .ToList(),
+        LegacyDayOfWeek = null,
+    };
+
+    /// <summary>Monday = 0 … Sunday = 6.</summary>
+    internal static int MondayFirst(DayOfWeek day) => ((int)day + 6) % 7;
 }
 
 /// <summary>When a job runs by itself (SPEC 4.6). By default it never does.</summary>
@@ -262,7 +393,8 @@ public sealed record JobConfig
     };
 
     /// <summary>Problems that prevent the job from being saved; empty when the job is valid.</summary>
-    public IReadOnlyList<string> Validate()
+    /// <param name="onDisk">Also compare where the source and targets really are (junctions, links, drive aliases).</param>
+    public IReadOnlyList<string> Validate(bool onDisk = false)
     {
         var errors = new List<string>();
         if (string.IsNullOrWhiteSpace(Name))
@@ -284,14 +416,24 @@ public sealed record JobConfig
             errors.Add($"Mass removal guard: {ex.Message}");
         }
 
-        if (Archive.RetentionDays is < 1)
+        if (Archive.RetentionDays is < 1 or > AppConfig.MaxRetentionDays)
         {
-            errors.Add("Archive retention must be at least one day.");
+            errors.Add($"Archive retention must be between 1 and {AppConfig.MaxRetentionDays:N0} days.");
         }
 
         if (Trigger.Schedule is { Kind: ScheduleKind.Interval, IntervalHours: < 1 or > 24 * 31 })
         {
             errors.Add("The schedule interval must be between 1 hour and 31 days.");
+        }
+
+        if (Trigger.Schedule.Kind == ScheduleKind.Weekly && Trigger.Schedule.DaysOfWeek.Count == 0)
+        {
+            errors.Add("Choose at least one day for the weekly schedule.");
+        }
+
+        if (Trigger.Schedule is { Kind: ScheduleKind.Monthly, DayOfMonth: < 1 or > 31 })
+        {
+            errors.Add("The day of the month must be between 1 and 31.");
         }
 
         foreach (var target in Targets)
@@ -301,7 +443,7 @@ public sealed record JobConfig
                 errors.Add($"Target '{target.Name}' must be a full path.");
             }
             else if (Path.IsPathFullyQualified(SourcePath)
-                     && SafetyChecks.CheckOverlap(SourcePath, target.LastKnownPath) is { } overlap)
+                     && SafetyChecks.CheckOverlap(SourcePath, target.LastKnownPath, onDisk) is { } overlap)
             {
                 errors.Add($"Target '{target.Name}': {overlap.Message}");
             }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Amberkeep.Core.FileSystem;
 
 namespace Amberkeep.Storage.History;
@@ -8,10 +9,56 @@ namespace Amberkeep.Storage.History;
 /// Run records in <c>history/</c> next to the executable: a small summary file per run
 /// (<c>&lt;name&gt;.json</c>) and the list of selected changes beside it (<c>&lt;name&gt;.changes.json</c>).
 /// </summary>
-public sealed class HistoryStore(string directory, IWritableFileSystem fileSystem)
+public sealed partial class HistoryStore(string directory, IWritableFileSystem fileSystem)
 {
     private const string RecordExtension = ".json";
     private const string ChangesExtension = ".changes.json";
+
+    /// <summary>Names Amberkeep writes: <c>yyyyMMdd-HHmmss-xxxxxxxx.json</c>, its <c>.changes.json</c>, and interrupted saves.</summary>
+    [GeneratedRegex(@"^\d{8}-\d{6}-[0-9a-f]{8}(\.changes)?\.json(\.[0-9a-f]{32}\.tmp)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex OwnFileName();
+
+    [GeneratedRegex(@"^\d{8}-\d{6}-[0-9a-f]{8}\.json$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex RecordFileName();
+
+    /// <summary>
+    /// Deletes every history file Amberkeep wrote, and the folder when nothing else is left in it.
+    /// Files it did not write are kept, and a folder that is a link is not touched at all.
+    /// </summary>
+    /// <returns>Problems; empty when everything was removed.</returns>
+    public IReadOnlyList<string> DeleteOwnFiles()
+    {
+        var problems = new List<string>();
+        if (fileSystem.GetEntry(Directory) is not { Kind: EntryKind.Directory } folder)
+        {
+            return problems;
+        }
+
+        if (folder.IsLink)
+        {
+            problems.Add($"{Directory} is a link or junction and was left as it is.");
+            return problems;
+        }
+
+        foreach (var entry in fileSystem.ListDirectory(Directory).Where(e => e.Kind == EntryKind.File && OwnFileName().IsMatch(e.Name)))
+        {
+            try
+            {
+                fileSystem.DeleteFile(Path.Join(Directory, entry.Name));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                problems.Add($"{entry.Name}: {ex.Message}");
+            }
+        }
+
+        if (fileSystem.IsDirectoryEmpty(Directory))
+        {
+            fileSystem.DeleteEmptyDirectory(Directory);
+        }
+
+        return problems;
+    }
 
     public HistoryStore(AppStore store, IWritableFileSystem fileSystem)
         : this(store.HistoryDirectory, fileSystem)
@@ -88,6 +135,18 @@ public sealed class HistoryStore(string directory, IWritableFileSystem fileSyste
         {
             Delete(path);
         }
+
+        // Leftovers of interrupted saves: change lists without their record, and temporary files.
+        var names = fileSystem.ListDirectory(Directory).Where(e => e.Kind == EntryKind.File).Select(e => e.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in names.Where(n => OwnFileName().IsMatch(n) && !RecordFileName().IsMatch(n)))
+        {
+            var orphanChanges = name.EndsWith(ChangesExtension, StringComparison.OrdinalIgnoreCase)
+                                && !names.Contains(name[..^ChangesExtension.Length] + RecordExtension);
+            if (orphanChanges || name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+            {
+                fileSystem.DeleteFile(Path.Join(Directory, name));
+            }
+        }
     }
 
     /// <summary>Deletes a record file together with its change list.</summary>
@@ -121,9 +180,7 @@ public sealed class HistoryStore(string directory, IWritableFileSystem fileSyste
     private IEnumerable<string> RecordFiles() =>
         fileSystem.DirectoryExists(Directory)
             ? fileSystem.ListDirectory(Directory)
-                .Where(e => e.Kind == EntryKind.File
-                            && e.Name.EndsWith(RecordExtension, StringComparison.OrdinalIgnoreCase)
-                            && !e.Name.EndsWith(ChangesExtension, StringComparison.OrdinalIgnoreCase))
+                .Where(e => e.Kind == EntryKind.File && RecordFileName().IsMatch(e.Name))
                 .Select(e => Path.Join(Directory, e.Name))
                 .ToList()
             : [];

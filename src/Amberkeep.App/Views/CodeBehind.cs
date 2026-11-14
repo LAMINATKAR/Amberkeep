@@ -7,7 +7,39 @@ namespace Amberkeep.App.Views;
 
 public sealed partial class MainWindow : Window
 {
-    public MainWindow() => AvaloniaXamlLoader.Load(this);
+    private bool _fitted;
+
+    public MainWindow()
+    {
+        AvaloniaXamlLoader.Load(this);
+        MiddleClickScroll.Attach(this);
+        Opened += (_, _) => FitToScreen();
+    }
+
+    /// <summary>
+    /// On small screens (laptops with display scaling) the default size would not fit. Done once, on the
+    /// first show; later the window keeps whatever size the user gave it (also after hiding to the tray).
+    /// </summary>
+    private void FitToScreen()
+    {
+        if (_fitted)
+        {
+            return;
+        }
+
+        _fitted = true;
+        if ((Screens.ScreenFromWindow(this) ?? Screens.Primary) is not { } screen)
+        {
+            return;
+        }
+
+        if (WindowFit.Fit(new Avalonia.Size(Width, Height), new Avalonia.Size(MinWidth, MinHeight), screen.WorkingArea, screen.Scaling) is { } fit)
+        {
+            Width = fit.Size.Width;
+            Height = fit.Size.Height;
+            Position = fit.Position;
+        }
+    }
 }
 
 /// <summary>The Amberkeep logo (<see cref="Platform.LogoArt"/>); 40 × 40 unless sized otherwise.</summary>

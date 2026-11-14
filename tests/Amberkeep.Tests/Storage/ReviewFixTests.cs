@@ -85,7 +85,7 @@ public sealed class ReviewFixTests : IDisposable
     [Fact]
     public void Clean_up_everything_also_removes_damaged_copies_and_temporary_files()
     {
-        foreach (var name in new[] { "amberkeep.json", "amberkeep.json.bad-20260101-000000", "amberkeep.json.0123.tmp", ".amberkeep-write-test-abc", "Amberkeep.exe", "readme.txt" })
+        foreach (var name in new[] { "amberkeep.json", "amberkeep.json.bad-20260101-000000", "amberkeep.json.0123456789abcdef0123456789abcdef.tmp", ".amberkeep-write-test-abc", "amberkeep-error.log", "Amberkeep.exe", "readme.txt", "amberkeep.json.my-copy" })
         {
             File.WriteAllText(Path.Combine(_fx.AppDirectory, name), "x");
         }
@@ -94,7 +94,7 @@ public sealed class ReviewFixTests : IDisposable
 
         Assert.Empty(report.Errors);
         Assert.Equal(
-            ["Amberkeep.exe", "readme.txt"],
+            ["Amberkeep.exe", "amberkeep.json.my-copy", "readme.txt"],
             Directory.GetFiles(_fx.AppDirectory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
     }
 

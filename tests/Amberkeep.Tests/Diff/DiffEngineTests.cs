@@ -165,14 +165,24 @@ public sealed class DiffEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Unicode_normalization_difference_is_not_a_change()
+    public async Task Unicode_form_difference_is_the_same_file_and_a_rename_on_windows_and_linux()
     {
+        // Composed (NFC, Windows) on the source, decomposed (NFD, Mac) on the target: the same name, so not New + Removed.
         _fx.Source.File("café.txt", "x");
         _fx.Target.File("café.txt", "x");
 
         var result = await _fx.AnalyzeAsync();
 
-        Assert.Empty(result.Items);
+        if (OperatingSystem.IsMacOS())
+        {
+            Assert.Empty(result.Items);
+        }
+        else
+        {
+            var item = Assert.Single(result.Items);
+            Assert.Equal(DiffCategory.CaseRename, item.Category);
+            Assert.Equal("café.txt", item.Source!.RelativePath);
+        }
     }
 
     [Fact]

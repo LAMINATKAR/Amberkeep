@@ -10,6 +10,9 @@ public sealed record RelinkResult(TargetConfig? Target, string? ConfirmationNeed
 /// <summary>Creates targets and links them to folders by writing their marker.</summary>
 public sealed class TargetRegistry(IWritableFileSystem fileSystem, IVolumeProvider volumes, TimeProvider timeProvider)
 {
+    /// <summary>Amberkeep's own folder, which no target may overlap.</summary>
+    public string? ProgramDirectory { get; init; }
+
     public TargetRegistry()
         : this(PhysicalFileSystem.Instance, PhysicalVolumeProvider.Instance, TimeProvider.System)
     {
@@ -29,7 +32,7 @@ public sealed class TargetRegistry(IWritableFileSystem fileSystem, IVolumeProvid
         ArgumentException.ThrowIfNullOrWhiteSpace(folder);
 
         var full = Path.GetFullPath(folder);
-        if (config.FindPathConflict(full, pendingJob: job) is { } conflict)
+        if (config.FindPathConflict(full, pendingJob: job, programDirectory: ProgramDirectory, onDisk: true) is { } conflict)
         {
             throw new InvalidOperationException(conflict);
         }
@@ -77,7 +80,7 @@ public sealed class TargetRegistry(IWritableFileSystem fileSystem, IVolumeProvid
             throw new InvalidOperationException($"The folder does not exist: {full}");
         }
 
-        if (config.FindPathConflict(full, target.Id, job) is { } conflict)
+        if (config.FindPathConflict(full, target.Id, job, ProgramDirectory, onDisk: true) is { } conflict)
         {
             throw new InvalidOperationException(conflict);
         }

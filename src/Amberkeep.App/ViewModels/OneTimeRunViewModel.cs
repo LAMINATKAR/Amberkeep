@@ -70,6 +70,7 @@ public sealed partial class OneTimeRunViewModel : ObservableObject
         {
             CompareMode = CompareContent ? CompareMode.Content : CompareMode.SizeAndTime,
             Exclusions = ExclusionsText.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+            ProtectedFolders = [_shell.Services.Store.BaseDirectory],
         };
 
         var title = "One-time run";
@@ -82,28 +83,44 @@ public sealed partial class OneTimeRunViewModel : ObservableObject
         var busy = new BusyViewModel("Analyzing", $"{source} → {target}");
         _shell.Show(busy);
 
-        DiffResult diff;
+        DiffResult? diff = null;
+        string? failure = null;
         try
         {
             _shell.Services.Activity.Analyzing(title);
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(busy.Token, _shell.Services.Gate.Token);
             diff = await new DiffEngine(_shell.Services.FileSystem)
-                .AnalyzeAsync(new DiffRequest(source, target, options), busy.Progress, busy.Token);
+                .AnalyzeAsync(new DiffRequest(source, target, options), busy.Progress, cancellation.Token);
         }
         catch (OperationCanceledException)
         {
-            _shell.Show(this);
-            return;
+            // Cancelled by the user, or the app is quitting.
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex)
         {
-            await _shell.Dialogs.ShowMessageAsync("Analysis failed", ex.Message);
-            _shell.Show(this);
-            return;
+            if (ex is not (IOException or UnauthorizedAccessException or ArgumentException))
+            {
+                Services.ErrorLog.Write(ex, title);
+            }
+
+            failure = ex.Message;
         }
         finally
         {
+            // Released before any dialog, so an automatic run is not held up while the message is open.
             _shell.Services.Activity.Idle();
             _shell.Services.Gate.Exit();
+        }
+
+        if (failure is not null)
+        {
+            await _shell.Dialogs.ShowMessageAsync("Analysis failed", failure);
+        }
+
+        if (diff is null)
+        {
+            _shell.Show(this);
+            return;
         }
 
         // Never purge old archive snapshots: the target may also be a saved backup with its own retention.
@@ -124,9 +141,13 @@ public sealed partial class OneTimeRunViewModel : ObservableObject
                             _shell.Services,
                             title,
                             progress,
-                            async tracked => RunOutcome.From(
-                                await new MirrorExecutor(_shell.Services.FileSystem, _shell.Services.Time)
-                                    .ExecuteAsync(diff, selection, execution, tracked, ct)))
+                            async (tracked, gateToken) =>
+                            {
+                                using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, gateToken);
+                                return RunOutcome.From(
+                                    await new MirrorExecutor(_shell.Services.FileSystem, _shell.Services.Time)
+                                        .ExecuteAsync(diff, selection, execution, tracked, cancellation.Token));
+                            })
                         ?? throw new InvalidOperationException("Another backup is running, possibly in the background. Try again when it has finished."),
                     canSaveReport: true);
                 _shell.Show(run);

@@ -22,20 +22,24 @@ public enum SafetyIssueKind
     TargetIsFile,
     TargetMissing,
     MassRemoval,
+    ProgramFolder,
 }
 
 public sealed record SafetyIssue(SafetyIssueKind Kind, SafetySeverity Severity, string Message);
 
 /// <summary>
-/// Requires approval when a run would remove many files from the target.
-/// Triggers only when both limits are exceeded, so that normal clean-ups do not bother the user.
+/// Requires approval when a run would remove many files from the target: more than <paramref name="Percent"/> % of
+/// the target's files (and at least <see cref="PercentFloor"/> files) OR at least <paramref name="Count"/> files.
 /// </summary>
 /// <param name="Enabled">The guard can be switched off.</param>
-/// <param name="Percent">Removed files must exceed this share of all files on the target (0–100).</param>
-/// <param name="MinCount">…and there must be at least this many removed files.</param>
-public sealed record MassRemovalGuard(bool Enabled = true, int Percent = 50, int MinCount = 100)
+/// <param name="Percent">Share of all files on the target (0–100) that removed files must exceed; 100 switches this limit off.</param>
+/// <param name="Count">Number of removed files that always asks; 0 switches this limit off.</param>
+public sealed record MassRemovalGuard(bool Enabled = true, int Percent = 50, int Count = 1000)
 {
-    /// <exception cref="ArgumentOutOfRangeException">Percent is outside 0–100 or MinCount is negative.</exception>
+    /// <summary>The share limit applies only from this many removed files, so tidying a small folder never asks.</summary>
+    public const int PercentFloor = 20;
+
+    /// <exception cref="ArgumentOutOfRangeException">Percent is outside 0–100 or Count is negative.</exception>
     public void Validate()
     {
         if (Percent is < 0 or > 100)
@@ -43,9 +47,9 @@ public sealed record MassRemovalGuard(bool Enabled = true, int Percent = 50, int
             throw new ArgumentOutOfRangeException(nameof(Percent), Percent, "Percent must be between 0 and 100.");
         }
 
-        if (MinCount < 0)
+        if (Count < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(MinCount), MinCount, "MinCount must not be negative.");
+            throw new ArgumentOutOfRangeException(nameof(Count), Count, "Count must not be negative.");
         }
     }
 }

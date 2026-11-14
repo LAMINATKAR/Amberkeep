@@ -74,6 +74,14 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
         private long _progressBytes;
         private bool _freeSpaceUnknown;
 
+        // Folders this run renamed on the target (old → new relative path), in the order they were renamed.
+        private readonly List<(string Old, string New)> _renamedFolders = [];
+
+        // Folders on both sides whose names are written differently (source → target relative path), selected or not.
+        private readonly Dictionary<string, string> _folderPairs = diff.Items
+            .Where(i => i is { Category: DiffCategory.CaseRename, Kind: EntryKind.Directory, Source: not null, Target: not null })
+            .ToDictionary(i => i.Source!.RelativePath, i => i.Target!.RelativePath, StringComparer.Ordinal);
+
         // Each run copies into its own folder, so a second run on the same target never touches its files.
         private readonly string _runId =
             time.GetUtcNow().ToString(RunStampFormat, CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N");
@@ -142,6 +150,29 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             {
                 var reasons = diff.SafetyIssues.Where(i => i.Severity == SafetySeverity.Blocking).Select(i => i.Message);
                 return "The analysis found a blocking problem: " + string.Join(" ", reasons);
+            }
+
+            // Checked again right before the first write: a junction or drive alias may have changed since the analysis.
+            if (SafetyChecks.CheckOverlap(diff.SourcePath, diff.TargetPath, onDisk: true) is { } overlap)
+            {
+                return overlap.Message;
+            }
+
+            foreach (var folder in diff.Options.ProtectedFolders)
+            {
+                if (SafetyChecks.CheckProgramFolder(folder, diff.SourcePath, diff.TargetPath).Issue is { Severity: SafetySeverity.Blocking } issue)
+                {
+                    return issue.Message;
+                }
+            }
+
+            // Our own folders must be real folders; through a link, temporary copies or the archive could land anywhere.
+            foreach (var folder in new[] { _programFolder, TempRoot, ArchiveRoot })
+            {
+                if (fs.GetEntry(folder) is { IsLink: true })
+                {
+                    return $"{folder} is a link or junction. Amberkeep does not write through links; remove it and analyze again.";
+                }
             }
 
             var removedFiles = selected.Count(i => i.Category == DiffCategory.Removed && i.Kind == EntryKind.File);
@@ -239,6 +270,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                 Do(item, ExecutionOperation.Remove, () =>
                 {
                     var path = TargetPath(item.Target!.RelativePath);
+                    EnsureNotBackInSource(item.Target);
                     EnsureUnchanged(item.Target, path);
                     DisposeOfTargetFile(item.Target.RelativePath, path);
                     _removedFiles++;
@@ -256,6 +288,8 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                     {
                         return;
                     }
+
+                    EnsureNotBackInSource(item.Target);
 
                     if (entry.Kind != EntryKind.Directory || entry.IsLink)
                     {
@@ -285,9 +319,17 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             {
                 Do(item, ExecutionOperation.Rename, () =>
                 {
-                    var path = TargetPath(item.Target!.RelativePath);
+                    var current = CurrentTargetRelative(item.Target!.RelativePath);
+                    var path = TargetPath(current);
                     EnsureUnchanged(item.Target, path);
-                    RenameLeaf(path, PathKey.GetName(item.Source!.RelativePath), item.Kind);
+                    var newName = PathKey.GetName(item.Source!.RelativePath);
+                    RenameLeaf(path, newName, item.Kind);
+                    if (item.Kind == EntryKind.Directory)
+                    {
+                        var parent = current.LastIndexOf(PathKey.Separator) is var slash and >= 0 ? current[..(slash + 1)] : string.Empty;
+                        _renamedFolders.Add((current, parent + newName));
+                    }
+
                     _renamed++;
                 });
             }
@@ -303,7 +345,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             {
                 Do(item, ExecutionOperation.CreateDirectory, () =>
                 {
-                    var path = TargetPath(item.Source!.RelativePath);
+                    var path = TargetPath(TargetRelativeFor(item.Source!.RelativePath));
                     var entry = fs.GetEntry(path);
                     if (entry is { Kind: EntryKind.Directory, IsLink: false })
                     {
@@ -332,7 +374,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
         private void CopyFile(DiffItem item)
         {
             var source = SourcePath(item.Source!.RelativePath);
-            var destination = TargetPath(item.Source.RelativePath);
+            var destination = TargetPath(TargetRelativeFor(item.Source.RelativePath));
             EnsureUnchanged(item.Source, source);
 
             string? existing = null;
@@ -345,7 +387,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             }
             else
             {
-                existing = TargetPath(item.Target!.RelativePath);
+                existing = TargetPath(CurrentTargetRelative(item.Target!.RelativePath));
                 EnsureUnchanged(item.Target, existing);
             }
 
@@ -466,9 +508,21 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             }
             else
             {
-                // Name differs in letter case: remove the old name, then place the new one.
-                fs.DeleteFile(_guard.Check(existing));
-                fs.MoveFile(temp, _guard.Check(destination), overwrite: false);
+                // Name differs in letter case: set the old file aside (still on the target), place the new one,
+                // and only then delete the old one, so a failure never leaves the target without the file.
+                var aside = Path.Join(TempFolder, Guid.NewGuid().ToString("N") + ".old");
+                fs.MoveFile(_guard.Check(existing), _guard.Check(aside), overwrite: false);
+                try
+                {
+                    fs.MoveFile(temp, _guard.Check(destination), overwrite: false);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    fs.MoveFile(_guard.Check(aside), _guard.Check(existing), overwrite: false);
+                    throw;
+                }
+
+                fs.DeleteFile(_guard.Check(aside));
             }
         }
 
@@ -479,7 +533,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                 Do(item, ExecutionOperation.UpdateTimestamp, () =>
                 {
                     var source = SourcePath(item.Source!.RelativePath);
-                    var path = TargetPath(item.Target!.RelativePath);
+                    var path = TargetPath(CurrentTargetRelative(item.Target!.RelativePath));
                     EnsureUnchanged(item.Source, source);
                     EnsureUnchanged(item.Target, path);
 
@@ -745,7 +799,58 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
 
         private string SourcePath(string relativePath) => PathKey.ToSystemPath(diff.SourcePath, relativePath);
 
+        // A removal is only right while the path is still missing in the source (the user may have put it back).
+        // A different kind at the same name is the planned type change (the analysis saw it too).
+        private void EnsureNotBackInSource(ScannedEntry target)
+        {
+            if (fs.GetEntry(SourcePath(target.RelativePath)) is { } entry && entry.Kind == target.Kind)
+            {
+                throw new StaleItemException("It exists in the source again – analyze again.");
+            }
+        }
+
         private string TargetPath(string relativePath) => PathKey.ToSystemPath(diff.TargetPath, relativePath);
+
+        /// <summary>Where a target entry found by the analysis is now, after the folder renames this run made.</summary>
+        private string CurrentTargetRelative(string targetRelative)
+        {
+            foreach (var (old, renamed) in _renamedFolders)
+            {
+                if (targetRelative.Equals(old, StringComparison.Ordinal))
+                {
+                    targetRelative = renamed;
+                }
+                else if (targetRelative.StartsWith(old + PathKey.Separator, StringComparison.Ordinal))
+                {
+                    targetRelative = renamed + targetRelative[old.Length..];
+                }
+            }
+
+            return targetRelative;
+        }
+
+        /// <summary>
+        /// The target path for a source path. Folders that exist on both sides under a differently written name
+        /// (case, Unicode form) are used as they are now on the target (renamed or not), so nothing lands in a second
+        /// folder next to them.
+        /// </summary>
+        private string TargetRelativeFor(string sourceRelative)
+        {
+            var parts = sourceRelative.Split(PathKey.Separator);
+            var sourcePrefix = string.Empty;
+            var result = string.Empty;
+            for (var i = 0; i < parts.Length; i++)
+            {
+                sourcePrefix = i == 0 ? parts[0] : sourcePrefix + PathKey.Separator + parts[i];
+                result = i == 0 ? parts[0] : result + PathKey.Separator + parts[i];
+                if (i < parts.Length - 1 && _folderPairs.TryGetValue(sourcePrefix, out var targetFolder))
+                {
+                    result = CurrentTargetRelative(targetFolder);
+                }
+            }
+
+            return result;
+        }
 
         private static bool IsCopy(DiffItem item) =>
             item.Kind == EntryKind.File

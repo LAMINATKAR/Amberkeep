@@ -18,9 +18,21 @@ internal sealed class JobFlow(IShell shell)
     /// <param name="target">The target.</param>
     /// <param name="runWithoutReview">Run without showing the diff when nothing requires approval.</param>
     /// <param name="onFinished">Called when the user leaves the result or the diff; the dashboard by default.</param>
-    public async Task StartAsync(JobConfig job, TargetConfig target, bool runWithoutReview, Action? onFinished = null)
+    /// <param name="onStarted">Called once the analysis really starts (no other backup was running).</param>
+    public async Task StartAsync(JobConfig job, TargetConfig target, bool runWithoutReview, Action? onFinished = null, Action? onStarted = null)
     {
         var finish = onFinished ?? shell.ShowDashboard;
+
+        // A card or notification may hold an older copy of the job: always use the saved one (e.g. a just enabled
+        // "Review changes before every run"). A job or target removed in the meantime is not run.
+        if (Services.Config.FindJob(job.Id) is not { } currentJob || currentJob.FindTarget(target.Id) is not { } currentTarget)
+        {
+            finish();
+            return;
+        }
+
+        job = currentJob;
+        target = currentTarget;
         var title = $"{job.Name} → {target.Name}";
         if (!Services.Gate.TryEnter())
         {
@@ -29,6 +41,7 @@ internal sealed class JobFlow(IShell shell)
             return;
         }
 
+        onStarted?.Invoke();
         var busy = new BusyViewModel("Analyzing", title);
         shell.Show(busy);
 
@@ -37,14 +50,21 @@ internal sealed class JobFlow(IShell shell)
         try
         {
             Services.Activity.Analyzing(title);
-            analyzed = await Services.Runner.AnalyzeAsync(job, target, busy.Progress, busy.Token);
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(busy.Token, Services.Gate.Token);
+            analyzed = await Services.Runner.AnalyzeAsync(job, target, busy.Progress, cancellation.Token);
         }
         catch (OperationCanceledException)
         {
-            // Cancelled by the user.
+            // Cancelled by the user, or the app is quitting.
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            // Whatever went wrong, the user gets a message and the window does not stay on "Analyzing".
+            if (ex is not (IOException or UnauthorizedAccessException or InvalidOperationException))
+            {
+                ErrorLog.Write(ex, $"Analysis of {title}");
+            }
+
             failure = ex.Message;
         }
         finally
@@ -124,7 +144,7 @@ internal sealed class JobFlow(IShell shell)
         AppServices services,
         string title,
         IProgress<Core.Execution.ExecutionProgress> progress,
-        Func<IProgress<Core.Execution.ExecutionProgress>, Task<RunOutcome>> execute)
+        Func<IProgress<Core.Execution.ExecutionProgress>, CancellationToken, Task<RunOutcome>> execute)
     {
         if (!services.Gate.TryEnter())
         {
@@ -136,7 +156,7 @@ internal sealed class JobFlow(IShell shell)
             services.Activity.Running(title, 0);
             var tracked = new ForwardingProgress(progress, p =>
                 services.Activity.Running(title, p.TotalBytes > 0 ? 100.0 * p.CopiedBytes / p.TotalBytes : 0));
-            return await execute(tracked);
+            return await execute(tracked, services.Gate.Token);
         }
         finally
         {
@@ -157,7 +177,11 @@ internal sealed class JobFlow(IShell shell)
                     Services,
                     title,
                     progress,
-                    async tracked => RunOutcome.From(await Services.Runner.ExecuteAsync(prepared, selection, approved, tracked, ct)))
+                    async (tracked, gateToken) =>
+                    {
+                        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, gateToken);
+                        return RunOutcome.From(await Services.Runner.ExecuteAsync(prepared, selection, approved, tracked, cancellation.Token));
+                    })
                 ?? throw new InvalidOperationException("Another backup is running, possibly in the background. Try again when it has finished."),
             finish);
         shell.Show(run);

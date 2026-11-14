@@ -16,14 +16,17 @@ public enum ActivityKind
 public sealed record ActivityState(ActivityKind Kind, string Text, double Percent, bool NeedsAttention);
 
 /// <summary>What Amberkeep is doing right now – shown by the tray icon and its tooltip. Thread-safe.</summary>
+/// <remarks>
+/// Every change is computed and stored under one lock, so concurrent updates from a background run and the UI
+/// cannot write back an older state. Listeners should read <see cref="State"/> when they handle
+/// <see cref="Changed"/>, because notifications from different threads may arrive out of order.
+/// </remarks>
 public sealed class ActivityMonitor
 {
     private readonly Lock _lock = new();
     private ActivityState _state = new(ActivityKind.Idle, "Amberkeep", 0, false);
     private bool _reviewsWaiting;
     private bool _problem;
-
-    private bool Attention => _reviewsWaiting || _problem;
 
     public event EventHandler<ActivityState>? Changed;
 
@@ -38,49 +41,46 @@ public sealed class ActivityMonitor
         }
     }
 
-    public void Analyzing(string title) => Set(new ActivityState(ActivityKind.Analyzing, $"Analyzing {title}", 0, Attention));
+    public void Analyzing(string title) => Update(_ => new ActivityState(ActivityKind.Analyzing, $"Analyzing {title}", 0, false));
 
     public void Running(string title, double percent) =>
-        Set(new ActivityState(ActivityKind.Running, $"{title} – {percent:0} %", percent, Attention));
+        Update(_ => new ActivityState(ActivityKind.Running, $"{title} – {percent:0} %", percent, false));
 
-    public void Idle() => Set(new ActivityState(ActivityKind.Idle, IdleText, 0, Attention));
+    public void Idle() => Update(_ => new ActivityState(ActivityKind.Idle, string.Empty, 0, false));
 
     /// <summary>Automatic runs wait for the user's review.</summary>
-    public void SetReviewsWaiting(bool value)
+    public void SetReviewsWaiting(bool value) => Update(current =>
     {
         _reviewsWaiting = value;
-        Refresh();
-    }
+        return current;
+    });
 
     /// <summary>A background run had problems; shown until the user opens the history or a later run succeeds.</summary>
-    public void ReportProblem()
+    public void ReportProblem() => Update(current =>
     {
         _problem = true;
-        Refresh();
-    }
+        return current;
+    });
 
-    public void ClearProblem()
+    public void ClearProblem() => Update(current =>
     {
         _problem = false;
-        Refresh();
-    }
+        return current;
+    });
 
-    private string IdleText => Attention ? "Amberkeep – needs your attention" : "Amberkeep";
-
-    private void Refresh()
+    // The change, the attention flag and the idle text are applied together under the lock.
+    private void Update(Func<ActivityState, ActivityState> change)
     {
-        var current = State;
-        Set(current with
-        {
-            NeedsAttention = Attention,
-            Text = current.Kind == ActivityKind.Idle ? IdleText : current.Text,
-        });
-    }
-
-    private void Set(ActivityState state)
-    {
+        ActivityState state;
         lock (_lock)
         {
+            state = change(_state);
+            var attention = _reviewsWaiting || _problem;
+            state = state with
+            {
+                NeedsAttention = attention,
+                Text = state.Kind == ActivityKind.Idle ? (attention ? "Amberkeep – needs your attention" : "Amberkeep") : state.Text,
+            };
             _state = state;
         }
 
@@ -88,16 +88,107 @@ public sealed class ActivityMonitor
     }
 }
 
-/// <summary>Only one analysis or backup runs at a time, whether started by the user or automatically.</summary>
+/// <summary>
+/// Only one analysis or backup runs at a time, whether started by the user or automatically. The work holding the
+/// gate observes <see cref="Token"/>, so quitting can stop it safely and wait for it (<see cref="StopAsync"/>).
+/// </summary>
 public sealed class RunGate
 {
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private readonly Lock _lock = new();
+    private CancellationTokenSource _stop = new();
+    private TaskCompletionSource? _released;
+    private bool _stopping;
 
     public bool IsBusy => _semaphore.CurrentCount == 0;
 
-    public bool TryEnter() => _semaphore.Wait(0);
+    /// <summary>Cancelled when the app stops while the gate is held; link it into the work's cancellation.</summary>
+    public CancellationToken Token
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _stop.Token;
+            }
+        }
+    }
 
-    public void Exit() => _semaphore.Release();
+    public bool TryEnter()
+    {
+        lock (_lock)
+        {
+            if (_stopping)
+            {
+                return false;
+            }
+        }
+
+        if (!_semaphore.Wait(0))
+        {
+            return false;
+        }
+
+        lock (_lock)
+        {
+            // Stopped between the first check and taking the semaphore: give it back.
+            if (_stopping)
+            {
+                _semaphore.Release();
+                return false;
+            }
+
+            // Not disposed: work that has just let go may still hold the old token.
+            _stop = new CancellationTokenSource();
+            _released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        return true;
+    }
+
+    public void Exit()
+    {
+        TaskCompletionSource? released;
+        lock (_lock)
+        {
+            released = _released;
+            _released = null;
+        }
+
+        _semaphore.Release();
+        released?.TrySetResult();
+    }
+
+    /// <summary>Lets go of the gate and lets no new work start (the holder is about to close the app).</summary>
+    public void ExitAndStop()
+    {
+        lock (_lock)
+        {
+            _stopping = true;
+        }
+
+        Exit();
+    }
+
+    /// <summary>
+    /// No new work may start; the work holding the gate is cancelled, and this waits until it has let go
+    /// (at most <paramref name="timeout"/>), so it can clean up its temporary files and write its history record.
+    /// </summary>
+    public async Task StopAsync(TimeSpan timeout)
+    {
+        Task? released;
+        lock (_lock)
+        {
+            _stopping = true;
+            released = _released?.Task;
+            _stop.Cancel();
+        }
+
+        if (released is not null)
+        {
+            await Task.WhenAny(released, Task.Delay(timeout)).ConfigureAwait(false);
+        }
+    }
 }
 
 /// <summary>An automatic analysis found changes that need the user's approval.</summary>
@@ -196,8 +287,17 @@ public sealed class BackgroundRunner(AppServices services, INotifier notifier, A
             return BackgroundRunResult.Busy;
         }
 
+        // The job may have been edited or deleted since the check that started this run.
+        if (services.Config.FindJob(job.Id) is not { } currentJob || currentJob.FindTarget(target.Id) is not { } currentTarget)
+        {
+            services.Gate.Exit();
+            return BackgroundRunResult.NotConnected;
+        }
+
+        job = currentJob;
+        target = currentTarget;
         var title = $"{job.Name} → {target.Name}";
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, services.Gate.Token);
         _current = cancellation;
         try
         {
@@ -258,8 +358,14 @@ public sealed class BackgroundRunner(AppServices services, INotifier notifier, A
         {
             return BackgroundRunResult.Busy;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            // Nothing may escape: this runs on a timer, and an unhandled exception would be lost or end the app.
+            if (ex is not (IOException or UnauthorizedAccessException or InvalidOperationException))
+            {
+                ErrorLog.Write(ex, $"Automatic run {title}");
+            }
+
             Notify($"{title}: failed", ex.Message, null);
             services.Activity.ReportProblem();
             return BackgroundRunResult.CompletedWithProblems;
@@ -280,13 +386,16 @@ public sealed class BackgroundRunner(AppServices services, INotifier notifier, A
         }
     }
 
+    // Only the location of a target that still exists is updated: one removed in the meantime is not added back.
     private void TrySaveLocation(JobConfig job, TargetConfig target)
     {
         try
         {
             if (!services.IsReadOnly)
             {
-                services.Update(config => config.FindJob(job.Id) is { } current ? config.WithJob(current.WithTarget(target)) : config);
+                services.Update(config => config.FindJob(job.Id) is { } current && current.FindTarget(target.Id) is not null
+                    ? config.WithJob(current.WithTarget(target))
+                    : config);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -364,7 +473,8 @@ public sealed class AutomationEngine(
                 var isDue = job.Trigger.OnTargetConnected && known && !wasConnected;
                 if (!isDue && job.Trigger.Schedule.Kind != ScheduleKind.None)
                 {
-                    var lastRun = History(now).FirstOrDefault(r => r.JobId == job.Id && r.TargetId == target.Id)?.StartedUtc;
+                    // Records "from the future" (a wrong clock) are ignored, or they would count as the last run forever.
+                    var lastRun = History(now).FirstOrDefault(r => r.JobId == job.Id && r.TargetId == target.Id && r.StartedUtc <= now)?.StartedUtc;
                     if (_lastAttempt.TryGetValue(target.Id, out var attempt) && (lastRun is null || attempt > lastRun))
                     {
                         lastRun = attempt;
@@ -397,6 +507,12 @@ public sealed class AutomationEngine(
 
                 _lastAttempt[target.Id] = services.Time.GetUtcNow();
             }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A check runs on a timer: an error must not disappear unnoticed, and the next check tries again.
+            ErrorLog.Write(ex, "Automatic check");
+            services.Activity.ReportProblem();
         }
         finally
         {

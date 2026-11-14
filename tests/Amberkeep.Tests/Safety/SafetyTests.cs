@@ -142,16 +142,19 @@ public sealed class SafetyTests : IDisposable
     }
 
     [Theory]
-    [InlineData(99, 100, true, false)]   // below the minimum count
-    [InlineData(100, 100, true, true)]   // 100 % and at the minimum
-    [InlineData(100, 250, true, false)]  // 40 %
-    [InlineData(125, 250, true, false)]  // exactly 50 % is not more than 50 %
-    [InlineData(126, 250, true, true)]   // 50.4 %
-    [InlineData(500, 500, false, false)] // guard switched off
-    [InlineData(0, 0, true, false)]      // empty target
-    public void Mass_removal_needs_both_limits_exceeded(int removed, int targetFiles, bool enabled, bool expected)
+    [InlineData(19, 20, true, false)]          // 95 %, but below the 20-file floor of the share limit
+    [InlineData(20, 20, true, true)]           // 100 % at the floor
+    [InlineData(20, 40, true, false)]          // exactly 50 % is not more than 50 %
+    [InlineData(21, 40, true, true)]           // 52.5 %
+    [InlineData(999, 100_000, true, false)]    // 1 % and below the count
+    [InlineData(1000, 100_000, true, true)]    // 1 %, but at the count limit
+    [InlineData(40_000, 100_000, true, true)]  // a big removal in a big folder asks (it did not with AND)
+    [InlineData(500, 500, false, false)]       // guard switched off
+    [InlineData(0, 0, true, false)]            // empty target
+    [InlineData(0, 10, true, false)]           // nothing removed
+    public void Mass_removal_asks_when_either_limit_is_reached(int removed, int targetFiles, bool enabled, bool expected)
     {
-        var issue = SafetyChecks.CheckMassRemoval(removed, targetFiles, new MassRemovalGuard(enabled, Percent: 50, MinCount: 100));
+        var issue = SafetyChecks.CheckMassRemoval(removed, targetFiles, new MassRemovalGuard(enabled, Percent: 50, Count: 1000));
 
         Assert.Equal(expected, issue is not null);
         if (issue is not null)
@@ -161,12 +164,45 @@ public sealed class SafetyTests : IDisposable
     }
 
     [Fact]
+    public void Mass_removal_message_names_the_limit_that_was_reached()
+    {
+        var guard = new MassRemovalGuard();
+
+        Assert.Contains("more than 50 % of the files", SafetyChecks.CheckMassRemoval(30, 40, guard)!.Message, StringComparison.Ordinal);
+        Assert.Contains("at least 1,000 files", SafetyChecks.CheckMassRemoval(1500, 100_000, guard)!.Message, StringComparison.Ordinal);
+        Assert.StartsWith("1,500 of 100,000 files", SafetyChecks.CheckMassRemoval(1500, 100_000, guard)!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Mass_removal_limits_can_be_switched_off_one_by_one()
+    {
+        var onlyCount = new MassRemovalGuard(Percent: 100, Count: 1000);
+        Assert.Null(SafetyChecks.CheckMassRemoval(900, 900, onlyCount));
+        Assert.NotNull(SafetyChecks.CheckMassRemoval(1000, 1000, onlyCount));
+
+        var onlyShare = new MassRemovalGuard(Percent: 50, Count: 0);
+        Assert.Null(SafetyChecks.CheckMassRemoval(40_000, 100_000, onlyShare));
+        Assert.NotNull(SafetyChecks.CheckMassRemoval(60_000, 100_000, onlyShare));
+
+        var neither = new MassRemovalGuard(Percent: 100, Count: 0);
+        Assert.Null(SafetyChecks.CheckMassRemoval(100_000, 100_000, neither));
+    }
+
+    [Fact]
     public void Mass_removal_limits_are_configurable()
     {
-        var strict = new MassRemovalGuard(Enabled: true, Percent: 10, MinCount: 5);
+        var strict = new MassRemovalGuard(Enabled: true, Percent: 10, Count: 50);
 
-        Assert.NotNull(SafetyChecks.CheckMassRemoval(6, 50, strict));
-        Assert.Null(SafetyChecks.CheckMassRemoval(4, 5, strict));
+        Assert.NotNull(SafetyChecks.CheckMassRemoval(21, 200, strict));
+        Assert.Null(SafetyChecks.CheckMassRemoval(19, 100, strict));
+        Assert.NotNull(SafetyChecks.CheckMassRemoval(50, 10_000, strict));
+    }
+
+    [Fact]
+    public void Mass_removal_rejects_a_negative_count()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            SafetyChecks.CheckMassRemoval(1, 1, new MassRemovalGuard(Count: -1)));
     }
 
     [Fact]

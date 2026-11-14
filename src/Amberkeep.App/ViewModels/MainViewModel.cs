@@ -52,17 +52,33 @@ public sealed partial class MainViewModel : ObservableObject, IShell
     public void RequestExit() => ExitRequested?.Invoke(this, EventArgs.Empty);
 
     /// <summary>Opens a backup that an automatic run prepared for review (analyzed again, so the list is current).</summary>
+    /// <remarks>
+    /// Not while the user is busy (an editor or a one-time run that may have unsaved input, a diff, a backup page,
+    /// an open dialog): then the window only comes up and the review waits in the dashboard bar.
+    /// The review leaves the bar only when its analysis really starts.
+    /// </remarks>
     public void OpenReview(PendingReview review)
     {
-        Services.PendingReviews.Remove(review.Target.Id);
         var job = Services.Config.FindJob(review.Job.Id);
         if (job?.FindTarget(review.Target.Id) is not { } target)
         {
-            ShowDashboard();
+            Services.PendingReviews.Remove(review.Target.Id);
             return;
         }
 
-        _ = new JobFlow(this).StartAsync(job, target, runWithoutReview: false);
+        // A background backup that is running is left to JobFlow: it says so and the review stays in the bar.
+        var busy = Dialog is not null
+                   || CurrentPage is JobEditorViewModel or OneTimeRunViewModel or DiffViewModel or RunViewModel or BusyViewModel;
+        if (busy)
+        {
+            return;
+        }
+
+        _ = new JobFlow(this).StartAsync(
+            job,
+            target,
+            runWithoutReview: false,
+            onStarted: () => Services.PendingReviews.Remove(review.Target.Id));
     }
 
     public void Show(object page) => CurrentPage = page;

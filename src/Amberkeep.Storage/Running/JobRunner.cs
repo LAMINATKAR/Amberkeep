@@ -30,6 +30,9 @@ public sealed class JobRunner(
     /// <summary>Number of run records kept; taken from the settings by the caller.</summary>
     public int HistoryLimit { get; set; } = new AppSettings().HistoryLimit;
 
+    /// <summary>Amberkeep's own folder; never part of a target, skipped inside a source (DiffOptions.ProtectedFolders).</summary>
+    public string? ProgramDirectory { get; init; }
+
     public async Task<PreparedRun> AnalyzeAsync(
         JobConfig job,
         TargetConfig target,
@@ -38,6 +41,11 @@ public sealed class JobRunner(
     {
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(target);
+        if (!Path.IsPathFullyQualified(job.SourcePath))
+        {
+            // Only a hand-edited file can get here; the editor does not save such a job.
+            throw new InvalidOperationException($"The source folder of '{job.Name}' is missing or not a full path. Edit the backup.");
+        }
 
         var status = _locator.Locate(target);
         if (!status.IsConnected)
@@ -48,7 +56,7 @@ public sealed class JobRunner(
         var moved = !string.Equals(status.Path, target.LastKnownPath, StringComparison.Ordinal);
         var located = moved ? new TargetRegistry(fileSystem, volumes, timeProvider).WithLocation(target, status.Path!) : target;
         var diff = await new DiffEngine(fileSystem)
-            .AnalyzeAsync(new DiffRequest(job.SourcePath, status.Path!, job.ToDiffOptions()), progress, cancellationToken)
+            .AnalyzeAsync(new DiffRequest(job.SourcePath, status.Path!, job.ToDiffOptions() with { ProtectedFolders = ProgramDirectory is null ? [] : [ProgramDirectory] }), progress, cancellationToken)
             .ConfigureAwait(false);
 
         return new PreparedRun(job, located, status, diff) { TargetMoved = moved };

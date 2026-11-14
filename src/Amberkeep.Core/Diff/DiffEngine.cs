@@ -37,7 +37,7 @@ public sealed class DiffEngine(IFileSystem fileSystem)
         var sourceRoot = Path.GetFullPath(request.SourcePath);
         var targetRoot = Path.GetFullPath(request.TargetPath);
 
-        var overlap = SafetyChecks.CheckOverlap(sourceRoot, targetRoot);
+        var overlap = SafetyChecks.CheckOverlap(sourceRoot, targetRoot, onDisk: true);
         if (overlap is not null)
         {
             return Blocked(sourceRoot, targetRoot, options, overlap);
@@ -53,7 +53,24 @@ public sealed class DiffEngine(IFileSystem fileSystem)
             return Blocked(sourceRoot, targetRoot, options, SafetyChecks.TargetIsFile(targetRoot));
         }
 
-        var exclusions = new ExclusionMatcher(options.Exclusions, caseSensitive);
+        var patterns = options.Exclusions.ToList();
+        var programFolderNotes = new List<SafetyIssue>();
+        foreach (var folder in options.ProtectedFolders)
+        {
+            var (issue, exclusion) = SafetyChecks.CheckProgramFolder(folder, sourceRoot, targetRoot);
+            if (issue is { Severity: SafetySeverity.Blocking })
+            {
+                return Blocked(sourceRoot, targetRoot, options, issue);
+            }
+
+            if (issue is not null && exclusion is not null)
+            {
+                programFolderNotes.Add(issue);
+                patterns.Add(exclusion);
+            }
+        }
+
+        var exclusions = new ExclusionMatcher(patterns, caseSensitive);
         var scanner = new Scanner(fileSystem);
         var tracker = new ScanProgressTracker(progress);
 
@@ -89,7 +106,7 @@ public sealed class DiffEngine(IFileSystem fileSystem)
         var sourceFiles = source.FileCount;
         var targetFiles = target.FileCount;
 
-        var safety = new List<SafetyIssue>();
+        var safety = new List<SafetyIssue>(programFolderNotes);
         if (!target.RootExists)
         {
             safety.Add(SafetyChecks.TargetMissing(targetRoot));
@@ -165,13 +182,24 @@ public sealed class DiffEngine(IFileSystem fileSystem)
             AddIssues(source, DiffSide.Source);
             AddIssues(target, DiffSide.Target);
 
-            var sourceMap = BuildMap(source, DiffSide.Source);
-            var targetMap = BuildMap(target, DiffSide.Target);
+            var collisions = new HashSet<string>(_comparer);
+            var sourceMap = BuildMap(source, DiffSide.Source, collisions);
+            var targetMap = BuildMap(target, DiffSide.Target, collisions);
 
             // Paths whose content is unknown on one side (unreadable directory or link that is not followed).
             // Nothing under them may be removed from or written to the target.
             var unknownOnSource = UnknownPaths(source);
             var unknownOnTarget = UnknownPaths(target);
+
+            // Two names in one folder that are the same name here (case, Unicode form): which one is meant is unknown,
+            // so neither is compared, copied or removed.
+            foreach (var key in collisions)
+            {
+                sourceMap.Remove(key);
+                targetMap.Remove(key);
+                unknownOnSource.Add(key);
+                unknownOnTarget.Add(key);
+            }
 
             var toCompare = new List<(ScannedEntry Source, ScannedEntry Target, bool Renamed)>();
 
@@ -300,18 +328,26 @@ public sealed class DiffEngine(IFileSystem fileSystem)
             Items.Add(Item(category.Value, sourceEntry, targetEntry));
         }
 
-        private Dictionary<string, ScannedEntry> BuildMap(ScanResult scan, DiffSide side)
+        private Dictionary<string, ScannedEntry> BuildMap(ScanResult scan, DiffSide side, HashSet<string> collisions)
         {
+            const string Message =
+                "Another entry in the same folder has a name that differs only in letter case or Unicode form; neither is changed on the target.";
             var map = new Dictionary<string, ScannedEntry>(scan.Entries.Count, _comparer);
             foreach (var entry in scan.Entries)
             {
-                if (!map.TryAdd(PathKey.Normalize(entry.RelativePath), entry))
+                var key = PathKey.Normalize(entry.RelativePath);
+                if (map.TryAdd(key, entry))
                 {
-                    Errors.Add(new DiffIssue(
-                        side,
-                        entry.RelativePath,
-                        "Another entry in the same folder has a name that differs only in letter case or Unicode form; this one is ignored."));
+                    continue;
                 }
+
+                collisions.Add(key);
+                if (!Errors.Any(e => e.Side == side && e.RelativePath == map[key].RelativePath))
+                {
+                    Errors.Add(new DiffIssue(side, map[key].RelativePath, Message));
+                }
+
+                Errors.Add(new DiffIssue(side, entry.RelativePath, Message));
             }
 
             return map;
@@ -326,11 +362,18 @@ public sealed class DiffEngine(IFileSystem fileSystem)
             Skipped.AddRange(scan.Skipped.Select(i => new DiffIssue(side, i.RelativePath, i.Message)));
         }
 
-        // Names that differ only in Unicode normalization are the same name; only a case difference is a rename.
-        private static bool NamesEqual(ScannedEntry source, ScannedEntry target) => string.Equals(
-            PathKey.Normalize(PathKey.GetName(source.RelativePath)),
-            PathKey.Normalize(PathKey.GetName(target.RelativePath)),
-            StringComparison.Ordinal);
+        // Matched names that are not written the same way are renamed on the target: a case difference, and on Windows
+        // and Linux also a Unicode-form difference (NFC from Windows vs NFD from a Mac), because those file systems keep
+        // both forms as different names, so files would otherwise land in a second folder. macOS treats both forms
+        // as one name, so there it is not a rename.
+        private static bool NamesEqual(ScannedEntry source, ScannedEntry target)
+        {
+            var sourceName = PathKey.GetName(source.RelativePath);
+            var targetName = PathKey.GetName(target.RelativePath);
+            return OperatingSystem.IsMacOS()
+                ? string.Equals(PathKey.Normalize(sourceName), PathKey.Normalize(targetName), StringComparison.Ordinal)
+                : string.Equals(sourceName, targetName, StringComparison.Ordinal);
+        }
 
         private static DiffItem Item(DiffCategory category, ScannedEntry? source, ScannedEntry? target) => new()
         {

@@ -59,13 +59,19 @@ public sealed class CleanupTests : IDisposable
         Directory.Move(offline.LastKnownPath, Path.Combine(_fx.BasePath, "unplugged"));
         File.WriteAllText(Path.Combine(_fx.AppDirectory, "Amberkeep.exe"), "exe");
         _fx.Create("app/state");
+        _fx.Create("app/history");
+        File.WriteAllText(Path.Combine(_fx.AppDirectory, "history", "my-notes.txt"), "not ours");
         var config = new AppConfig().WithJob(job).WithJob(offlineJob);
         _fx.Store.Save(config);
 
         var report = _fx.Cleanup.CleanUpEverything(config, cleanTargets: true, removeArchives: true);
 
         Assert.Empty(report.Errors);
-        Assert.Equal(["Amberkeep.exe"], Directory.EnumerateFileSystemEntries(_fx.AppDirectory).Select(Path.GetFileName));
+        // Only what Amberkeep wrote is removed: state/ is not used before two-way sync, a foreign file keeps history/.
+        Assert.Equal(
+            ["Amberkeep.exe", "history", "state"],
+            Directory.EnumerateFileSystemEntries(_fx.AppDirectory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Equal(["my-notes.txt"], Directory.GetFiles(Path.Combine(_fx.AppDirectory, "history")).Select(Path.GetFileName));
         Assert.False(Directory.Exists(Path.Combine(target.LastKnownPath, ".amberkeep")));
         Assert.True(File.Exists(Path.Combine(target.LastKnownPath, "data.txt")));
         Assert.Contains(report.NotCleaned, n => n.Contains("Offline", StringComparison.Ordinal));

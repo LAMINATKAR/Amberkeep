@@ -101,6 +101,8 @@ public sealed partial class DashboardViewModel : ObservableObject
     /// <summary>Rebuilds the cards and checks every target (in the background).</summary>
     public async Task RefreshAsync()
     {
+        // Refreshes can overlap (save, run finished, reload); only the newest may replace the cards.
+        var generation = ++_refreshGeneration;
         IsRefreshing = true;
         try
         {
@@ -110,6 +112,11 @@ public sealed partial class DashboardViewModel : ObservableObject
                 var history = shell.Services.History.List();
                 return config.Jobs.Select(job => new JobCardViewModel(shell, this, job, history)).ToList();
             });
+            if (generation != _refreshGeneration)
+            {
+                return;
+            }
+
             Jobs.Clear();
             foreach (var card in cards)
             {
@@ -120,9 +127,14 @@ public sealed partial class DashboardViewModel : ObservableObject
         }
         finally
         {
-            IsRefreshing = false;
+            if (generation == _refreshGeneration)
+            {
+                IsRefreshing = false;
+            }
         }
     }
+
+    private int _refreshGeneration;
 
     [RelayCommand]
     private Task ReloadAsync() => RefreshAsync();
@@ -196,15 +208,43 @@ public sealed partial class DashboardViewModel : ObservableObject
             return;
         }
 
+        // Not while a backup runs: its marker, archive and temporary files may be what gets deleted.
+        if (!shell.Services.Gate.TryEnter())
+        {
+            await JobFlow.ShowBusyAsync(shell);
+            return;
+        }
+
+        Amberkeep.Storage.Cleanup.CleanupReport? report = null;
+        string? failure = null;
         try
         {
-            var (config, report) = shell.Services.Cleanup.DeleteJob(shell.Services.Config, job.Id, answers[0], answers[0] && answers[1]);
-            shell.Services.Accept(config);
-            await ShowReportAsync(report);
+            var saved = shell.Services.Config.FindJob(job.Id) ?? job;
+            foreach (var target in saved.Targets)
+            {
+                shell.Services.PendingReviews.Remove(target.Id);
+            }
+
+            // Saved first (under the save lock): if that fails, nothing has been removed yet.
+            shell.Services.Update(config => config.WithoutJob(saved.Id));
+            report = shell.Services.Cleanup.CleanUpRemovedJob(saved, answers[0], answers[0] && answers[1]);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            await shell.Dialogs.ShowMessageAsync("The backup could not be deleted", ex.Message);
+            failure = ex.Message;
+        }
+        finally
+        {
+            shell.Services.Gate.Exit();
+        }
+
+        if (failure is not null)
+        {
+            await shell.Dialogs.ShowMessageAsync("The backup could not be deleted", failure);
+        }
+        else if (report is not null)
+        {
+            await ShowReportAsync(report);
         }
 
         await RefreshAsync();
@@ -231,7 +271,11 @@ public sealed partial class DashboardViewModel : ObservableObject
                 result = shell.Services.Registry.Relink(shell.Services.Config, job, target, folder, confirmed: true);
             }
 
-            shell.Services.Save(shell.Services.Config.WithJob(job.WithTarget(result.Target!)));
+            // Only the target's location changes; the rest of the job is taken as it is saved now.
+            var located = result.Target!;
+            shell.Services.Update(config => config.FindJob(job.Id) is { } current && current.FindTarget(located.Id) is not null
+                ? config.WithJob(current.WithTarget(located))
+                : config);
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
         {

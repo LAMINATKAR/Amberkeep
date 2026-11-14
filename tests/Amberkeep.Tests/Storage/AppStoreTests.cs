@@ -50,6 +50,44 @@ public sealed class AppStoreTests : IDisposable
     }
 
     [Fact]
+    public void Schedules_load_back_and_the_old_single_weekly_day_is_taken_over()
+    {
+        var (job, _) = _fx.JobWithTarget();
+        var weekly = new ScheduleConfig { Kind = ScheduleKind.Weekly, DaysOfWeek = [DayOfWeek.Monday, DayOfWeek.Thursday], Time = new TimeOnly(6, 45) };
+        _fx.Store.Save(new AppConfig().WithJob(job with { Trigger = new TriggerConfig { Schedule = weekly } }));
+
+        var text = File.ReadAllText(_fx.Store.ConfigPath);
+        Assert.Equal(weekly, Assert.Single(_fx.Store.Load().Config!.Jobs).Trigger.Schedule);
+        Assert.DoesNotContain("\"dayOfWeek\"", text, StringComparison.Ordinal);
+
+        // A file written before weekly schedules had several days.
+        var root = System.Text.Json.Nodes.JsonNode.Parse(text)!;
+        var stored = root["jobs"]![0]!["trigger"]!["schedule"]!.AsObject();
+        Assert.True(stored.Remove("daysOfWeek"));
+        stored["dayOfWeek"] = "Friday";
+        File.WriteAllText(_fx.Store.ConfigPath, root.ToJsonString());
+
+        var schedule = Assert.Single(_fx.Store.Load().Config!.Jobs).Trigger.Schedule;
+        Assert.Equal([DayOfWeek.Friday], schedule.DaysOfWeek);
+        Assert.Null(schedule.LegacyDayOfWeek);
+    }
+
+    [Fact]
+    public void Weekly_schedule_without_days_and_monthly_day_out_of_range_are_invalid()
+    {
+        var (job, _) = _fx.JobWithTarget();
+        var config = new AppConfig();
+
+        var noDays = job with { Trigger = new TriggerConfig { Schedule = new ScheduleConfig { Kind = ScheduleKind.Weekly, DaysOfWeek = [] } } };
+        var day32 = job with { Trigger = new TriggerConfig { Schedule = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 32 } } };
+        var day31 = job with { Trigger = new TriggerConfig { Schedule = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 31 } } };
+
+        Assert.Contains(config.Validate(noDays), e => e.Contains("at least one day", StringComparison.Ordinal));
+        Assert.Contains(config.Validate(day32), e => e.Contains("day of the month", StringComparison.Ordinal));
+        Assert.DoesNotContain(config.Validate(day31), e => e.Contains("day of the month", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Saving_leaves_no_temporary_files()
     {
         _fx.Store.Save(new AppConfig());

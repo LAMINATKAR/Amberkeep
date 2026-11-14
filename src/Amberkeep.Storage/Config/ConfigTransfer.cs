@@ -67,7 +67,7 @@ public static class ConfigTransfer
     /// <param name="config">Current configuration.</param>
     /// <param name="imported">Jobs read by <see cref="ReadImport"/>.</param>
     /// <param name="replaceExisting">Replace jobs with the same id; otherwise they are skipped.</param>
-    public static ImportResult Merge(AppConfig config, IReadOnlyList<JobConfig> imported, bool replaceExisting)
+    public static ImportResult Merge(AppConfig config, IReadOnlyList<JobConfig> imported, bool replaceExisting, string? programDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(imported);
@@ -86,7 +86,7 @@ public static class ConfigTransfer
                 continue;
             }
 
-            var errors = current.Validate(job);
+            var errors = current.Validate(job, programDirectory, onDisk: true);
             if (errors.Count > 0)
             {
                 skipped.Add(new SkippedImport(job.Name, errors[0]));

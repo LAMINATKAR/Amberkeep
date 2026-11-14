@@ -35,8 +35,18 @@ internal sealed class TestFileSystem : IWritableFileSystem
         return OnWrite is null ? stream : new CallbackStream(stream, OnWrite);
     }
 
-    public void MoveFile(string sourcePath, string destinationPath, bool overwrite) =>
+    /// <summary>Makes a move fail with an IOException when it returns true for (source, destination).</summary>
+    public Func<string, string, bool>? FailMove { get; set; }
+
+    public void MoveFile(string sourcePath, string destinationPath, bool overwrite)
+    {
+        if (FailMove?.Invoke(sourcePath, destinationPath) == true)
+        {
+            throw new IOException($"Simulated failure moving to {destinationPath}");
+        }
+
         _inner.MoveFile(sourcePath, destinationPath, overwrite);
+    }
 
     public void MoveDirectory(string sourcePath, string destinationPath) => _inner.MoveDirectory(sourcePath, destinationPath);
 

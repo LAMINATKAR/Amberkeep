@@ -54,7 +54,7 @@ public sealed class CleanupService(
 {
     private readonly TargetLocator _locator = new(fileSystem, volumes);
 
-    /// <summary>Removes a target from its job and saves the configuration.</summary>
+    /// <summary>Removes a target from its job and saves the configuration; the target's files are cleaned afterwards.</summary>
     public (AppConfig Config, CleanupReport Report) RemoveTarget(
         AppConfig config, Guid jobId, Guid targetId, bool removeMarker, bool removeArchive)
     {
@@ -63,20 +63,34 @@ public sealed class CleanupService(
         var job = config.FindJob(jobId) ?? throw new InvalidOperationException("The backup does not exist.");
         var target = job.FindTarget(targetId) ?? throw new InvalidOperationException("The target does not exist.");
 
-        CleanTarget(job, target, removeMarker, removeArchive, report);
+        // Saved first: if saving fails, nothing on the target has been removed yet.
         var updated = config.WithJob(job.WithoutTarget(targetId));
         store.Save(updated);
+        CleanTarget(job, target, removeMarker, removeArchive, report);
         return (updated, report);
     }
 
-    /// <summary>Removes a job with its history and saves the configuration.</summary>
+    /// <summary>Removes a job and saves the configuration; then its history and (optionally) target files are cleaned.</summary>
     public (AppConfig Config, CleanupReport Report) DeleteJob(
         AppConfig config, Guid jobId, bool cleanTargets, bool removeArchives)
     {
         ArgumentNullException.ThrowIfNull(config);
-        var report = new CleanupReport();
         var job = config.FindJob(jobId) ?? throw new InvalidOperationException("The backup does not exist.");
 
+        // Saved first: if saving fails, nothing has been removed yet.
+        var updated = config.WithoutJob(jobId);
+        store.Save(updated);
+        return (updated, CleanUpRemovedJob(job, cleanTargets, removeArchives));
+    }
+
+    /// <summary>
+    /// Removes the history and (optionally) the markers and archives of a job that is no longer in the saved
+    /// configuration. Callers save the configuration first.
+    /// </summary>
+    public CleanupReport CleanUpRemovedJob(JobConfig job, bool cleanTargets, bool removeArchives)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        var report = new CleanupReport();
         foreach (var target in job.Targets)
         {
             CleanTarget(job, target, cleanTargets, cleanTargets && removeArchives, report);
@@ -84,7 +98,7 @@ public sealed class CleanupService(
 
         try
         {
-            var deleted = history.DeleteForJob(jobId);
+            var deleted = history.DeleteForJob(job.Id);
             report.Removed.Add($"{deleted} history records of '{job.Name}'");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -92,9 +106,7 @@ public sealed class CleanupService(
             report.Errors.Add($"History of '{job.Name}' could not be deleted: {ex.Message}");
         }
 
-        var updated = config.WithoutJob(jobId);
-        store.Save(updated);
-        return (updated, report);
+        return report;
     }
 
     /// <summary>
@@ -119,23 +131,34 @@ public sealed class CleanupService(
             }
         }
 
-        // amberkeep.json plus set-aside damaged copies (amberkeep.json.bad-*), interrupted saves
-        // (amberkeep.json.*.tmp) and write-test leftovers. Nothing else next to the exe is ours.
+        // Only files Amberkeep wrote; anything else in the program folder belongs to the user.
         if (fileSystem.DirectoryExists(store.BaseDirectory))
         {
             foreach (var entry in fileSystem.ListDirectory(store.BaseDirectory))
             {
-                if (entry.Kind == EntryKind.File
-                    && (entry.Name.StartsWith(AppStore.ConfigFileName, StringComparison.OrdinalIgnoreCase)
-                        || entry.Name.StartsWith(AppStore.WriteProbePrefix, StringComparison.OrdinalIgnoreCase)))
+                if (entry.Kind == EntryKind.File && AppStore.IsOwnFile(entry.Name))
                 {
                     Try(report, entry.Name, () => fileSystem.DeleteFile(Path.Join(store.BaseDirectory, entry.Name)));
                 }
             }
         }
 
-        DeleteFolder(store.HistoryDirectory, report);
-        DeleteFolder(store.StateDirectory, report);
+        // history/: only our record files; the folder goes only when nothing else is in it.
+        // state/ is not used before two-way sync, so whatever is there is not ours.
+        try
+        {
+            var problems = history.DeleteOwnFiles();
+            report.Errors.AddRange(problems);
+            if (problems.Count == 0)
+            {
+                report.Removed.Add(store.HistoryDirectory);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            report.Errors.Add($"{store.HistoryDirectory}: {ex.Message}");
+        }
+
         return report;
     }
 

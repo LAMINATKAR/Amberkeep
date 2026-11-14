@@ -34,6 +34,12 @@ public sealed record DiffOptions
     public CaseSensitivity CaseSensitivity { get; init; } = CaseSensitivity.Auto;
 
     public MassRemovalGuard MassRemovalGuard { get; init; } = new();
+
+    /// <summary>
+    /// Folders that must never be part of the mirror, normally Amberkeep's own folder (settings, history). A target
+    /// that overlaps one is blocked; inside the source one is skipped (SafetyChecks.CheckProgramFolder).
+    /// </summary>
+    public IReadOnlyList<string> ProtectedFolders { get; init; } = [];
 }
 
 public sealed record DiffRequest(string SourcePath, string TargetPath, DiffOptions Options);

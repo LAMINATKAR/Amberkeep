@@ -180,13 +180,25 @@ public sealed partial class ArchiveViewModel : ObservableObject
             return;
         }
 
-        try
+        string? failure = null;
+        if (!await WithGateAsync(() =>
+            {
+                try
+                {
+                    _browser.DeleteSnapshot(row.Snapshot);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    failure = ex.Message;
+                }
+            }))
         {
-            _browser.DeleteSnapshot(row.Snapshot);
+            return;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+
+        if (failure is not null)
         {
-            await _shell.Dialogs.ShowMessageAsync("The snapshot could not be deleted", ex.Message);
+            await _shell.Dialogs.ShowMessageAsync("The snapshot could not be deleted", failure);
         }
 
         await LoadAsync();
@@ -201,19 +213,60 @@ public sealed partial class ArchiveViewModel : ObservableObject
             return;
         }
 
-        try
+        string message;
+        string title;
+        IReadOnlyList<string>? deleted = null;
+        string? failure = null;
+        if (!await WithGateAsync(() =>
+            {
+                try
+                {
+                    deleted = _browser.PurgeOld(_targetPath, TimeSpan.FromDays(days), _shell.Services.Time.GetUtcNow());
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failure = ex.Message;
+                }
+            }))
         {
-            var deleted = _browser.PurgeOld(_targetPath, TimeSpan.FromDays(days), _shell.Services.Time.GetUtcNow());
-            await _shell.Dialogs.ShowMessageAsync(
-                "Archive cleaned up",
-                deleted.Count == 0 ? $"No snapshot is older than {days} days." : $"{Format.Count(deleted.Count, "snapshot", "snapshots")} deleted.");
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            await _shell.Dialogs.ShowMessageAsync("The archive could not be cleaned up", ex.Message);
+            return;
         }
 
+        if (failure is not null)
+        {
+            title = "The archive could not be cleaned up";
+            message = failure;
+        }
+        else
+        {
+            title = "Archive cleaned up";
+            message = deleted is not { Count: > 0 } ? $"No snapshot is older than {days} days." : $"{Format.Count(deleted.Count, "snapshot", "snapshots")} deleted.";
+        }
+
+        await _shell.Dialogs.ShowMessageAsync(title, message);
+
         await LoadAsync();
+    }
+
+    // Deleting archive snapshots must not run beside a backup that writes into the same archive.
+    private async Task<bool> WithGateAsync(Action action)
+    {
+        if (!_shell.Services.Gate.TryEnter())
+        {
+            await JobFlow.ShowBusyAsync(_shell);
+            return false;
+        }
+
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _shell.Services.Gate.Exit();
+        }
+
+        return true;
     }
 
     private async Task RestoreAsync(string destination)
@@ -239,8 +292,15 @@ public sealed partial class ArchiveViewModel : ObservableObject
             return;
         }
 
+        // Not while a backup runs on this target; Quit stops the restore like a backup.
+        if (!_shell.Services.Gate.TryEnter())
+        {
+            await JobFlow.ShowBusyAsync(_shell);
+            return;
+        }
+
         IsRestoring = true;
-        _restoreCancellation = new CancellationTokenSource();
+        _restoreCancellation = CancellationTokenSource.CreateLinkedTokenSource(_shell.Services.Gate.Token);
         var progress = new Progress<RestoreProgress>(p => RestoreStatus = $"Restoring {p.Done:N0} of {p.Total:N0}…  {p.CurrentPath}");
         try
         {
@@ -264,6 +324,7 @@ public sealed partial class ArchiveViewModel : ObservableObject
             RestoreStatus = string.Empty;
             _restoreCancellation.Dispose();
             _restoreCancellation = null;
+            _shell.Services.Gate.Exit();
         }
     }
 
