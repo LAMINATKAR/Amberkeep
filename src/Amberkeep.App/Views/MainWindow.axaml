@@ -4,6 +4,7 @@
         x:Class="Amberkeep.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="Amberkeep"
+        Icon="avares://Amberkeep/Assets/amberkeep.ico"
         Width="1120" Height="780" MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource PageBrush}">

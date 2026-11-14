@@ -3,10 +3,18 @@
              xmlns:vm="using:Amberkeep.App.ViewModels"
              x:Class="Amberkeep.App.Views.ConfirmDialogView"
              x:DataType="vm:ConfirmDialogViewModel">
-  <Border Classes="card" Width="500" Padding="24" BoxShadow="0 12 40 0 #40000000">
+  <UserControl.Styles>
+    <Style Selector="Border.dialog"><Setter Property="Width" Value="500" /></Style>
+    <!-- Long texts (licenses) get room for 100 monospace characters per line. -->
+    <Style Selector="Border.dialog.wide"><Setter Property="Width" Value="800" /></Style>
+  </UserControl.Styles>
+  <Border Classes="card dialog" Classes.wide="{Binding IsLongText}" Padding="24" BoxShadow="0 12 40 0 #40000000">
     <StackPanel Spacing="14">
       <TextBlock Classes="h2" Text="{Binding Title}" TextWrapping="Wrap" />
-      <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+      <TextBlock Text="{Binding Message}" TextWrapping="Wrap" IsVisible="{Binding !IsLongText}" />
+      <ScrollViewer MaxHeight="440" IsVisible="{Binding IsLongText}">
+        <SelectableTextBlock Text="{Binding Message}" TextWrapping="Wrap" FontFamily="Cascadia Mono, Consolas, Menlo, monospace" FontSize="12" />
+      </ScrollViewer>
       <ItemsControl ItemsSource="{Binding Options}" IsVisible="{Binding HasOptions}">
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:DialogOptionViewModel">

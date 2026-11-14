@@ -94,6 +94,9 @@ foreach (var (variant, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeV
         "Delete", "Cancel", destructive: true,
         [new DialogOption("Also remove Amberkeep files (marker) from connected targets", true), new DialogOption("Also delete archived old versions on connected targets")]);
     Render(main, main.Dashboard, $"09-dialog-{suffix}");
+
+    main.Dialog = new ConfirmDialogViewModel("Licenses", SettingsViewModel.ThirdPartyNotices(), "Close", null, destructive: false) { IsLongText = true };
+    Render(main, new SettingsViewModel(main), $"16-licenses-{suffix}");
     main.Dialog = null;
 }
 

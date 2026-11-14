@@ -83,13 +83,38 @@ public sealed partial class SettingsViewModel : ObservableObject
         ?? typeof(SettingsViewModel).Assembly.GetName().Version?.ToString()
         ?? "unknown";
 
-    public IReadOnlyList<LicenseInfo> Licenses { get; } =
+    public string Copyright { get; } =
+        typeof(SettingsViewModel).Assembly.GetCustomAttribute<AssemblyCopyrightAttribute>()?.Copyright ?? string.Empty;
+
+    public string LicenseText { get; } = "Free software under the GNU General Public License v3. It comes with no warranty.";
+
+    public IReadOnlyList<LicenseInfo> Licenses { get; } = Components;
+
+    /// <summary>The components shipped with the program; every one has its license text in THIRD-PARTY-NOTICES.txt.</summary>
+    internal static IReadOnlyList<LicenseInfo> Components { get; } =
     [
         new(".NET runtime and libraries", "MIT", "https://github.com/dotnet/runtime"),
         new("Avalonia UI", "MIT", "https://github.com/AvaloniaUI/Avalonia"),
         new("CommunityToolkit.Mvvm", "MIT", "https://github.com/CommunityToolkit/dotnet"),
         new("Inter typeface", "SIL Open Font License 1.1", "https://github.com/rsms/inter"),
+        new("SkiaSharp and HarfBuzzSharp", "MIT", "https://github.com/mono/SkiaSharp"),
+        new("Skia", "BSD 3-Clause", "https://skia.org"),
+        new("HarfBuzz", "Old MIT", "https://github.com/harfbuzz/harfbuzz"),
+        new("ANGLE", "BSD 3-Clause", "https://github.com/google/angle"),
     ];
+
+    /// <summary>The full license texts, embedded in the program.</summary>
+    internal static string ThirdPartyNotices()
+    {
+        using var stream = typeof(SettingsViewModel).Assembly.GetManifestResourceStream("THIRD-PARTY-NOTICES.txt");
+        if (stream is null)
+        {
+            return "The license texts are missing from this build. See THIRD-PARTY-NOTICES.txt next to the program.";
+        }
+
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
 
     [ObservableProperty]
     private decimal? _historyLimit;
@@ -122,6 +147,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenDataFolder() => _shell.Dialogs.OpenFolder(DataFolder);
+
+    [RelayCommand]
+    private Task ViewLicensesAsync() => _shell.Dialogs.ShowTextAsync("Licenses", ThirdPartyNotices());
 
     [RelayCommand]
     private async Task ExportAsync()

@@ -47,6 +47,9 @@ public sealed partial class ConfirmDialogViewModel : ObservableObject
 
     public bool IsDestructive { get; }
 
+    /// <summary>The message is a long preformatted text, shown in a wider, scrollable box.</summary>
+    public bool IsLongText { get; init; }
+
     public ObservableCollection<DialogOptionViewModel> Options { get; }
 
     public bool HasOptions => Options.Count > 0;

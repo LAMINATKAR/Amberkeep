@@ -8,4 +8,14 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
+
+  <!-- Shown in the executable's properties and in About. -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <Product>Amberkeep</Product>
+    <Authors>LAMINATKAR</Authors>
+    <Company>LAMINATKAR</Company>
+    <Copyright>© 2026 LAMINATKAR</Copyright>
+    <Description>One-way folder backups to one or more drives, with a preview of every change.</Description>
+  </PropertyGroup>
 </Project>

@@ -39,6 +39,7 @@ public sealed class NotificationWindow : Window
 {
     public NotificationWindow(string title, string message, Action? onClick)
     {
+        Icon = LogoArt.ApplicationIcon();
         WindowDecorations = Avalonia.Controls.WindowDecorations.None;
         Topmost = true;
         ShowActivated = false;

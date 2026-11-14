@@ -26,18 +26,12 @@ public static class TrayIconRenderer
         // The stone, smaller when a ring is drawn around it.
         var scale = running ? 0.62 : 1.0;
         var offset = (Size - Size * scale) / 2;
-        canvas.Children.Add(new Path
-        {
-            Data = Geometry.Parse("M20,6 L44,6 L58,24 L32,60 L6,24 Z"),
-            Fill = new LinearGradientBrush
-            {
-                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
-                GradientStops = { new GradientStop(Color.Parse("#F7CF6B"), 0), new GradientStop(Color.Parse("#E09A26"), 0.55), new GradientStop(Color.Parse("#A9600E"), 1) },
-            },
-            RenderTransform = new MatrixTransform(Matrix.CreateScale(scale, scale) * Matrix.CreateTranslation(offset, offset)),
-            RenderTransformOrigin = new RelativePoint(0, 0, RelativeUnit.Absolute),
-        });
+        // The tray shows the icon at 16–32 px, so the simple artwork is used.
+        var stone = LogoArt.Create(detailed: false);
+        stone.Width = stone.Height = Size * scale;
+        Canvas.SetLeft(stone, offset);
+        Canvas.SetTop(stone, offset);
+        canvas.Children.Add(stone);
 
         if (running)
         {
@@ -55,11 +49,7 @@ public static class TrayIconRenderer
             canvas.Children.Add(Dot(Red, 44, 0));
         }
 
-        canvas.Measure(new Size(Size, Size));
-        canvas.Arrange(new Rect(0, 0, Size, Size));
-        var bitmap = new RenderTargetBitmap(new PixelSize(Size, Size));
-        bitmap.Render(canvas);
-        return bitmap;
+        return LogoArt.RenderControl(canvas, Size);
     }
 
     public static WindowIcon Render(ActivityState state)

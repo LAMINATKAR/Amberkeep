@@ -10,9 +10,15 @@ public sealed partial class MainWindow : Window
     public MainWindow() => AvaloniaXamlLoader.Load(this);
 }
 
-public sealed partial class LogoView : UserControl
+/// <summary>The Amberkeep logo (<see cref="Platform.LogoArt"/>); 40 × 40 unless sized otherwise.</summary>
+public sealed class LogoView : UserControl
 {
-    public LogoView() => AvaloniaXamlLoader.Load(this);
+    public LogoView()
+    {
+        Width = 40;
+        Height = 40;
+        Content = Platform.LogoArt.Create();
+    }
 }
 
 public sealed partial class DashboardView : UserControl

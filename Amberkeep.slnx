@@ -9,6 +9,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Amberkeep.DevDiff/Amberkeep.DevDiff.csproj" />
+    <Project Path="tools/Amberkeep.IconGen/Amberkeep.IconGen.csproj" />
     <Project Path="tools/Amberkeep.Screenshots/Amberkeep.Screenshots.csproj" />
   </Folder>
 </Solution>

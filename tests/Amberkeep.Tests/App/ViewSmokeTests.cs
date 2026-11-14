@@ -81,6 +81,13 @@ public sealed class ViewSmokeTests : IDisposable
                     Assert.True(window.IsVisible, page.GetType().Name);
                     window.Close();
                 }
+
+                _app.Shell.Dialog = new ConfirmDialogViewModel("Licenses", SettingsViewModel.ThirdPartyNotices(), "Close", null, destructive: false) { IsLongText = true };
+                var licenses = new MainWindow { DataContext = _app.Shell, Width = 1100, Height = 760 };
+                licenses.Show();
+                licenses.UpdateLayout();
+                Assert.True(licenses.IsVisible);
+                licenses.Close();
             },
             TestContext.Current.CancellationToken);
     }

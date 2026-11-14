@@ -59,6 +59,9 @@ internal sealed class OverlayDialogService(MainViewModel host, Func<TopLevel?> t
     public Task ShowMessageAsync(string title, string message) =>
         host.ShowDialogAsync(new ConfirmDialogViewModel(title, message, "OK", null, destructive: false));
 
+    public Task ShowTextAsync(string title, string text) =>
+        host.ShowDialogAsync(new ConfirmDialogViewModel(title, text, "Close", null, destructive: false) { IsLongText = true });
+
     public void OpenFolder(string path)
     {
         if (!Directory.Exists(path))

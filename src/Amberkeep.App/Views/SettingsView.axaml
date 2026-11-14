@@ -95,7 +95,11 @@
               <TextBlock Classes="muted small" Text="{Binding Version, StringFormat='Version {0}'}" />
             </StackPanel>
           </StackPanel>
-          <TextBlock Classes="muted small" Text="Built with open-source software:" />
+          <StackPanel Spacing="2">
+            <TextBlock Text="{Binding Copyright}" />
+            <TextBlock Classes="muted" Text="{Binding LicenseText}" TextWrapping="Wrap" />
+          </StackPanel>
+          <TextBlock Classes="muted small" Margin="0,6,0,0" Text="Built with open-source software:" />
           <ItemsControl ItemsSource="{Binding Licenses}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:LicenseInfo">
@@ -107,6 +111,7 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
+          <Button Content="View licenses" Command="{Binding ViewLicensesCommand}" HorizontalAlignment="Left" Margin="0,4,0,0" />
         </StackPanel>
       </Border>
     </StackPanel>

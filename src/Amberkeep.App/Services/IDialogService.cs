@@ -21,5 +21,8 @@ public interface IDialogService
 
     Task ShowMessageAsync(string title, string message);
 
+    /// <summary>A long, preformatted text (e.g. license texts) in a scrollable dialog.</summary>
+    Task ShowTextAsync(string title, string text) => ShowMessageAsync(title, text);
+
     void OpenFolder(string path);
 }
