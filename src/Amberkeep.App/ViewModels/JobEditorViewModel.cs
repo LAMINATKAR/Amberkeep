@@ -29,6 +29,10 @@ public sealed partial class EditorTargetViewModel(TargetConfig target, bool isNe
 
 public sealed record CaseChoice(CaseSensitivity Value, string Label);
 
+public sealed record ScheduleChoice(ScheduleKind Value, string Label);
+
+public sealed record DayChoice(DayOfWeek Value, string Label);
+
 /// <summary>Creates or edits a backup job (SPEC 6.2).</summary>
 public sealed partial class JobEditorViewModel : ObservableObject
 {
@@ -58,6 +62,12 @@ public sealed partial class JobEditorViewModel : ObservableObject
         _archiveEnabled = _original.Archive.Enabled;
         _keepArchiveForever = _original.Archive.RetentionDays is null;
         _retentionDays = _original.Archive.RetentionDays ?? 30;
+        var trigger = _original.Trigger;
+        _runOnConnect = trigger.OnTargetConnected;
+        _scheduleKind = ScheduleChoices.First(c => c.Value == trigger.Schedule.Kind);
+        _scheduleTime = trigger.Schedule.Time.ToTimeSpan();
+        _scheduleDay = DayChoices.First(d => d.Value == trigger.Schedule.DayOfWeek);
+        _intervalHours = trigger.Schedule.IntervalHours;
 
         Targets = new ObservableCollection<EditorTargetViewModel>(
             _original.Targets.Select(t => new EditorTargetViewModel(t, isNew: false, takeOver: false)));
@@ -158,8 +168,55 @@ public sealed partial class JobEditorViewModel : ObservableObject
             Enabled = ArchiveEnabled,
             RetentionDays = KeepArchiveForever ? null : (int)(RetentionDays ?? 30),
         },
+        Trigger = new TriggerConfig
+        {
+            OnTargetConnected = RunOnConnect,
+            Schedule = new ScheduleConfig
+            {
+                Kind = ScheduleKind.Value,
+                Time = TimeOnly.FromTimeSpan(ScheduleTime ?? new TimeSpan(20, 0, 0)),
+                DayOfWeek = ScheduleDay.Value,
+                IntervalHours = (int)(IntervalHours ?? 6),
+            },
+        },
         Targets = Targets.Select(t => t.Target).ToList(),
     };
+
+    public IReadOnlyList<ScheduleChoice> ScheduleChoices { get; } =
+    [
+        new(Storage.Config.ScheduleKind.None, "No schedule"),
+        new(Storage.Config.ScheduleKind.Daily, "Every day at"),
+        new(Storage.Config.ScheduleKind.Weekly, "Every week on"),
+        new(Storage.Config.ScheduleKind.Interval, "Every few hours"),
+    ];
+
+    public IReadOnlyList<DayChoice> DayChoices { get; } =
+        [.. new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday }
+            .Select(d => new DayChoice(d, d.ToString()))];
+
+    [ObservableProperty]
+    private bool _runOnConnect;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowTime), nameof(ShowDay), nameof(ShowInterval))]
+    private ScheduleChoice _scheduleKind = null!;
+
+    [ObservableProperty]
+    private TimeSpan? _scheduleTime;
+
+    [ObservableProperty]
+    private DayChoice _scheduleDay = null!;
+
+    [ObservableProperty]
+    private decimal? _intervalHours;
+
+    public bool ShowTime => ScheduleKind.Value is Storage.Config.ScheduleKind.Daily or Storage.Config.ScheduleKind.Weekly;
+
+    public bool ShowDay => ScheduleKind.Value == Storage.Config.ScheduleKind.Weekly;
+
+    public bool ShowInterval => ScheduleKind.Value == Storage.Config.ScheduleKind.Interval;
+
+    partial void OnIntervalHoursChanged(decimal? value) => Validate();
 
     [RelayCommand]
     private async Task BrowseSourceAsync()

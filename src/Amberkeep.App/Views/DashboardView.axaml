@@ -24,6 +24,23 @@
       </StackPanel>
     </Grid>
 
+    <!-- Waiting reviews and paused automation -->
+    <Border DockPanel.Dock="Top" Classes="banner" Margin="0,0,0,14"
+            IsVisible="{Binding PendingText, Converter={x:Static ObjectConverters.IsNotNull}}"
+            BorderBrush="{x:Static app:Converters.Amber}">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="{Binding PendingText}" TextWrapping="Wrap" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Classes="accent" Content="Review" Command="{Binding ReviewCommand}" />
+      </Grid>
+    </Border>
+    <Border DockPanel.Dock="Top" Classes="banner" Margin="0,0,0,14" IsVisible="{Binding IsPaused}"
+            BorderBrush="{x:Static app:Converters.Gray}">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="Automatic runs are paused." VerticalAlignment="Center" />
+        <Button Grid.Column="1" Content="Resume" Command="{Binding ResumeCommand}" IsEnabled="{Binding CanEdit}" />
+      </Grid>
+    </Border>
+
     <!-- Start-up message -->
     <Border DockPanel.Dock="Top" Classes="banner" Margin="0,0,0,14"
             IsVisible="{Binding Banner, Converter={x:Static ObjectConverters.IsNotNull}}"
@@ -70,6 +87,9 @@
                         </Border>
                         <Border Classes="chip" IsVisible="{Binding RequiresApproval}">
                           <TextBlock Text="Review before run" />
+                        </Border>
+                        <Border Classes="chip" IsVisible="{Binding TriggerText, Converter={x:Static ObjectConverters.IsNotNull}}">
+                          <TextBlock Text="{Binding TriggerText}" />
                         </Border>
                       </StackPanel>
                       <TextBlock Classes="path" Text="{Binding SourcePath}" />

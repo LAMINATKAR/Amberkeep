@@ -152,6 +152,38 @@
           </StackPanel>
         </Border>
 
+        <!-- Automatic runs -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="section" Text="Run automatically" Margin="0" />
+            <TextBlock Classes="muted small" TextWrapping="Wrap"
+                       Text="Amberkeep must be running (it can stay in the tray). With 'Review changes before every run' switched on, automatic runs only prepare the changes and ask you to approve them." />
+            <CheckBox IsChecked="{Binding RunOnConnect}" Content="When a target disk is connected" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <ComboBox ItemsSource="{Binding ScheduleChoices}" SelectedItem="{Binding ScheduleKind}" MinWidth="180">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ScheduleChoice">
+                    <TextBlock Text="{Binding Label}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <ComboBox ItemsSource="{Binding DayChoices}" SelectedItem="{Binding ScheduleDay}" MinWidth="140" IsVisible="{Binding ShowDay}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DayChoice">
+                    <TextBlock Text="{Binding Label}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock Text="at" VerticalAlignment="Center" IsVisible="{Binding ShowDay}" />
+              <TimePicker SelectedTime="{Binding ScheduleTime}" ClockIdentifier="24HourClock" IsVisible="{Binding ShowTime}" />
+              <NumericUpDown Value="{Binding IntervalHours}" Minimum="1" Maximum="744" FormatString="0" Width="110" IsVisible="{Binding ShowInterval}" />
+              <TextBlock Text="hours" VerticalAlignment="Center" IsVisible="{Binding ShowInterval}" />
+            </StackPanel>
+            <TextBlock Classes="muted small" TextWrapping="Wrap"
+                       Text="A scheduled run that was missed (computer off, disk not connected) runs as soon as possible afterwards." />
+          </StackPanel>
+        </Border>
+
         <!-- Archive -->
         <Border Classes="card">
           <StackPanel Spacing="10">

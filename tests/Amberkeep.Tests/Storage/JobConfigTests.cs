@@ -53,7 +53,7 @@ public class JobConfigTests
         Assert.True(job.RequireApproval);
         Assert.False(job.Archive.Enabled);
         Assert.Equal(30, job.Archive.RetentionDays);
-        Assert.Equal(TriggerKind.Manual, job.Trigger.Kind);
+        Assert.False(job.Trigger.IsAutomatic);
     }
 
     [Fact]

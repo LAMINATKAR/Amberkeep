@@ -22,35 +22,56 @@ internal sealed class JobFlow(IShell shell)
     {
         var finish = onFinished ?? shell.ShowDashboard;
         var title = $"{job.Name} → {target.Name}";
-        var busy = new BusyViewModel("Analyzing", title);
-        shell.Show(busy);
-
-        PreparedRun prepared;
-        try
+        if (!Services.Gate.TryEnter())
         {
-            prepared = await Services.Runner.AnalyzeAsync(job, target, busy.Progress, busy.Token);
-        }
-        catch (OperationCanceledException)
-        {
+            await ShowBusyAsync(shell);
             finish();
             return;
         }
+
+        var busy = new BusyViewModel("Analyzing", title);
+        shell.Show(busy);
+
+        PreparedRun? analyzed = null;
+        string? failure = null;
+        try
+        {
+            Services.Activity.Analyzing(title);
+            analyzed = await Services.Runner.AnalyzeAsync(job, target, busy.Progress, busy.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled by the user.
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            await shell.Dialogs.ShowMessageAsync("Analysis failed", ex.Message);
+            failure = ex.Message;
+        }
+        finally
+        {
+            // Released before finish(): Run all starts the next target from there.
+            Services.Activity.Idle();
+            Services.Gate.Exit();
+        }
+
+        if (failure is not null)
+        {
+            await shell.Dialogs.ShowMessageAsync("Analysis failed", failure);
+        }
+
+        if (analyzed is not { } prepared)
+        {
             finish();
             return;
         }
 
         if (prepared.TargetMoved && !Services.IsReadOnly)
         {
-            var current = Services.Config.FindJob(job.Id);
             try
             {
-                if (current is not null)
-                {
-                    Services.Save(Services.Config.WithJob(current.WithTarget(prepared.Target)));
-                }
+                Services.Update(config => config.FindJob(job.Id) is { } current
+                    ? config.WithJob(current.WithTarget(prepared.Target))
+                    : config);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
@@ -90,16 +111,66 @@ internal sealed class JobFlow(IShell shell)
             finish));
     }
 
+    /// <summary>Tells the user that a backup already runs (usually an automatic one).</summary>
+    internal static Task ShowBusyAsync(IShell shell) => shell.Dialogs.ShowMessageAsync(
+        "A backup is running",
+        "Another backup is running, possibly in the background. Try again when it has finished.");
+
+    /// <summary>
+    /// Runs <paramref name="execute"/> as the only backup and mirrors its progress to the tray.
+    /// Returns null when another backup is running.
+    /// </summary>
+    internal static async Task<RunOutcome?> GuardedAsync(
+        AppServices services,
+        string title,
+        IProgress<Core.Execution.ExecutionProgress> progress,
+        Func<IProgress<Core.Execution.ExecutionProgress>, Task<RunOutcome>> execute)
+    {
+        if (!services.Gate.TryEnter())
+        {
+            return null;
+        }
+
+        try
+        {
+            services.Activity.Running(title, 0);
+            var tracked = new ForwardingProgress(progress, p =>
+                services.Activity.Running(title, p.TotalBytes > 0 ? 100.0 * p.CopiedBytes / p.TotalBytes : 0));
+            return await execute(tracked);
+        }
+        finally
+        {
+            services.Activity.Idle();
+            services.Gate.Exit();
+        }
+    }
+
     private Task RunAsync(PreparedRun prepared, IReadOnlySet<DiffItem> selection, bool approved, Action finish)
     {
+        var title = $"{prepared.Job.Name} → {prepared.Target.Name}";
         var run = new RunViewModel(
             shell,
-            $"{prepared.Job.Name} → {prepared.Target.Name}",
+            title,
             prepared.Job.SourcePath,
             prepared.Status.Path!,
-            async (progress, ct) => RunOutcome.From(await Services.Runner.ExecuteAsync(prepared, selection, approved, progress, ct)),
+            async (progress, ct) => await GuardedAsync(
+                    Services,
+                    title,
+                    progress,
+                    async tracked => RunOutcome.From(await Services.Runner.ExecuteAsync(prepared, selection, approved, tracked, ct)))
+                ?? throw new InvalidOperationException("Another backup is running, possibly in the background. Try again when it has finished."),
             finish);
         shell.Show(run);
         return run.StartAsync();
+    }
+
+    private sealed class ForwardingProgress(IProgress<Core.Execution.ExecutionProgress> inner, Action<Core.Execution.ExecutionProgress> also)
+        : IProgress<Core.Execution.ExecutionProgress>
+    {
+        public void Report(Core.Execution.ExecutionProgress value)
+        {
+            inner.Report(value);
+            also(value);
+        }
     }
 }

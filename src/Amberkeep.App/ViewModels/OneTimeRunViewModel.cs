@@ -73,12 +73,19 @@ public sealed partial class OneTimeRunViewModel : ObservableObject
         };
 
         var title = "One-time run";
+        if (!_shell.Services.Gate.TryEnter())
+        {
+            await JobFlow.ShowBusyAsync(_shell);
+            return;
+        }
+
         var busy = new BusyViewModel("Analyzing", $"{source} → {target}");
         _shell.Show(busy);
 
         DiffResult diff;
         try
         {
+            _shell.Services.Activity.Analyzing(title);
             diff = await new DiffEngine(_shell.Services.FileSystem)
                 .AnalyzeAsync(new DiffRequest(source, target, options), busy.Progress, busy.Token);
         }
@@ -92,6 +99,11 @@ public sealed partial class OneTimeRunViewModel : ObservableObject
             await _shell.Dialogs.ShowMessageAsync("Analysis failed", ex.Message);
             _shell.Show(this);
             return;
+        }
+        finally
+        {
+            _shell.Services.Activity.Idle();
+            _shell.Services.Gate.Exit();
         }
 
         // Never purge old archive snapshots: the target may also be a saved backup with its own retention.
@@ -108,9 +120,14 @@ public sealed partial class OneTimeRunViewModel : ObservableObject
                     title,
                     diff.SourcePath,
                     diff.TargetPath,
-                    async (progress, ct) => RunOutcome.From(
-                        await new MirrorExecutor(_shell.Services.FileSystem, _shell.Services.Time)
-                            .ExecuteAsync(diff, selection, execution, progress, ct)),
+                    async (progress, ct) => await JobFlow.GuardedAsync(
+                            _shell.Services,
+                            title,
+                            progress,
+                            async tracked => RunOutcome.From(
+                                await new MirrorExecutor(_shell.Services.FileSystem, _shell.Services.Time)
+                                    .ExecuteAsync(diff, selection, execution, tracked, ct)))
+                        ?? throw new InvalidOperationException("Another backup is running, possibly in the background. Try again when it has finished."),
                     canSaveReport: true);
                 _shell.Show(run);
                 return run.StartAsync();

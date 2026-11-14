@@ -58,13 +58,14 @@ internal sealed class AppFixture : IDisposable
 {
     private readonly TempDirectory _temp = new();
 
-    public AppFixture()
+    public AppFixture(TimeProvider? time = null, Amberkeep.Storage.Cleanup.IAutostart? autostart = null)
     {
         AppDirectory = Create("app");
         VolumeA = Create("volA");
         VolumeB = Create("volB");
         Source = new TreeBuilder(System.IO.Path.Combine(_temp.Path, "source"));
-        Services = AppServices.Create(AppDirectory, PhysicalFileSystem.Instance, new FakeVolumes(VolumeA, VolumeB), TimeProvider.System);
+        Volumes = new FakeVolumes(VolumeA, VolumeB);
+        Services = AppServices.Create(AppDirectory, PhysicalFileSystem.Instance, Volumes, time ?? TimeProvider.System, autostart);
         Shell = new MainViewModel(Services, Dialogs);
     }
 
@@ -77,6 +78,8 @@ internal sealed class AppFixture : IDisposable
     public string VolumeB { get; }
 
     public TreeBuilder Source { get; }
+
+    public FakeVolumes Volumes { get; }
 
     public AppServices Services { get; }
 

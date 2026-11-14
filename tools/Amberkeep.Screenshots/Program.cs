@@ -37,7 +37,7 @@ foreach (var (variant, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeV
     Pump(empty.Dashboard.RefreshAsync());
     Render(empty, empty.Dashboard, $"02-dashboard-empty-{suffix}");
 
-    Render(main, new JobEditorViewModel(main, sample.Services.Config.Jobs[0]), $"03-editor-{suffix}", height: 1500);
+    Render(main, new JobEditorViewModel(main, sample.Services.Config.Jobs[0]), $"03-editor-{suffix}", height: 1800);
     Render(main, new DiffViewModel(main, sample.Diff, "Photos → External HDD", false, _ => Task.CompletedTask), $"04-diff-{suffix}");
     Render(main, new BusyViewModel("Analyzing", "Photos → External HDD") { Status = "Scanning…  12,408 items in the source, 11,950 on the target" }, $"05-busy-{suffix}");
 
@@ -69,7 +69,24 @@ foreach (var (variant, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeV
     archive.Files.Take(2).ToList().ForEach(f => f.IsSelected = true);
     Render(main, archive, $"11-archive-{suffix}");
 
-    Render(main, new SettingsViewModel(main), $"12-settings-{suffix}", height: 1100);
+    Render(main, new SettingsViewModel(main), $"12-settings-{suffix}", height: 1350);
+
+    var photosJob = sample.Services.Config.Jobs[0];
+    sample.Services.PendingReviews.Add(new PendingReview(photosJob, photosJob.Targets[0], 7, DateTimeOffset.UtcNow));
+    Pump(main.Dashboard.RefreshAsync());
+    Render(main, main.Dashboard, $"13-dashboard-review-{suffix}");
+    sample.Services.PendingReviews.Remove(photosJob.Targets[0].Id);
+
+    var toast = new Amberkeep.App.Platform.NotificationWindow("Photos → External HDD: 7 changes", "Review the changes to run the backup.", null);
+    toast.Show();
+    for (var i = 0; i < 5; i++)
+    {
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+    }
+
+    toast.CaptureRenderedFrame()?.Save(Path.Combine(output, $"14-notification-{suffix}.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+    toast.Close();
 
     main.Dialog = new ConfirmDialogViewModel(
         "Delete 'Photos'?",
@@ -79,6 +96,28 @@ foreach (var (variant, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeV
     Render(main, main.Dashboard, $"09-dialog-{suffix}");
     main.Dialog = null;
 }
+
+// Tray icon states side by side (4x scale).
+var strip = new Avalonia.Controls.StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 16, Margin = new Thickness(16), Background = Avalonia.Media.Brushes.White };
+foreach (var state in new[]
+{
+    new ActivityState(ActivityKind.Idle, "", 0, false), new ActivityState(ActivityKind.Analyzing, "", 0, false),
+    new ActivityState(ActivityKind.Running, "", 30, false), new ActivityState(ActivityKind.Running, "", 75, false),
+    new ActivityState(ActivityKind.Idle, "", 0, true),
+})
+{
+    strip.Children.Add(new Avalonia.Controls.Image { Source = Amberkeep.App.Platform.TrayIconRenderer.RenderBitmap(state), Width = 64, Height = 64 });
+}
+
+var iconWindow = new Avalonia.Controls.Window { Content = strip, SizeToContent = Avalonia.Controls.SizeToContent.WidthAndHeight };
+iconWindow.Show();
+for (var i = 0; i < 5; i++)
+{
+    Dispatcher.UIThread.RunJobs();
+    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+}
+
+iconWindow.CaptureRenderedFrame()?.Save(Path.Combine(output, "15-tray-icons.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
 
 Console.WriteLine($"Screenshots written to {output}");
 return 0;
@@ -170,7 +209,11 @@ internal sealed record SampleData(AppServices Services, AppServices EmptyService
         Write(source, "Edited on target.docx", "short", t0);
 
         // Photos: one target that is backed up once, one that is not connected.
-        var photos = new JobConfig { Name = "Photos", SourcePath = source, Archive = new ArchiveSettings { Enabled = true } };
+        var photos = new JobConfig
+        {
+            Name = "Photos", SourcePath = source, Archive = new ArchiveSettings { Enabled = true },
+            Trigger = new TriggerConfig { OnTargetConnected = true, Schedule = new ScheduleConfig { Kind = ScheduleKind.Daily, Time = new TimeOnly(20, 0) } },
+        };
         var external = services.Registry.AddTarget(services.Config, photos, Path.Combine(volumeA, "Backup", "Photos"), "External HDD");
         photos = photos.WithTarget(external);
         var old = services.Registry.AddTarget(services.Config.WithJob(photos), photos, Path.Combine(volumeB, "Backup", "Photos"), "Old HDD");

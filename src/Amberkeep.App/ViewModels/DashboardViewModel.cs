@@ -10,9 +10,78 @@ using CommunityToolkit.Mvvm.Input;
 namespace Amberkeep.App.ViewModels;
 
 /// <summary>Start page: all backup jobs with the state of their targets (SPEC 6.1).</summary>
-public sealed partial class DashboardViewModel(IShell shell) : ObservableObject
+public sealed partial class DashboardViewModel : ObservableObject
 {
+    private readonly IShell shell;
+
+    // Background runs report from other threads; bound properties change on the thread that created us.
+    private readonly SynchronizationContext? _ui = SynchronizationContext.Current;
+
+    public DashboardViewModel(IShell shell)
+    {
+        this.shell = shell;
+        _banner = shell.Services.StartupMessage;
+        shell.Services.PendingReviews.Changed += (_, _) => OnUi(UpdateAutomationState);
+        shell.Services.ConfigChanged += (_, _) => OnUi(UpdateAutomationState);
+        UpdateAutomationState();
+    }
+
     public ObservableCollection<JobCardViewModel> Jobs { get; } = [];
+
+    [ObservableProperty]
+    private string? _pendingText;
+
+    [ObservableProperty]
+    private bool _isPaused;
+
+    /// <summary>Opens the oldest backup waiting for review.</summary>
+    [RelayCommand]
+    private void Review()
+    {
+        if (shell.Services.PendingReviews.Items.FirstOrDefault() is { } review && shell is MainViewModel main)
+        {
+            main.OpenReview(review);
+        }
+    }
+
+    [RelayCommand]
+    private void Resume()
+    {
+        var config = shell.Services.Config;
+        try
+        {
+            shell.Services.Save(config with { Settings = config.Settings with { AutomaticRunsPaused = false } });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _ = shell.Dialogs.ShowMessageAsync("Settings not saved", ex.Message);
+        }
+    }
+
+    private void UpdateAutomationState()
+    {
+        var pending = shell.Services.PendingReviews.Items;
+        PendingText = pending.Count switch
+        {
+            0 => null,
+            1 => $"{pending[0].Title} has {Format.Count(pending[0].Changes, "change", "changes")} waiting for your review.",
+            _ => $"{pending.Count} backups are waiting for your review.",
+        };
+        shell.Services.Activity.SetReviewsWaiting(pending.Count > 0);
+        IsPaused = shell.Services.Config.Settings.AutomaticRunsPaused && shell.Services.Config.Jobs.Any(j => j.Trigger.IsAutomatic);
+    }
+
+    private void OnUi(Action action)
+    {
+        if (_ui is null || SynchronizationContext.Current == _ui)
+        {
+            action();
+        }
+        else
+        {
+            _ui.Post(_ => action(), null);
+        }
+    }
 
     [ObservableProperty]
     private bool _hasJobs;
@@ -21,7 +90,7 @@ public sealed partial class DashboardViewModel(IShell shell) : ObservableObject
     private bool _isRefreshing;
 
     [ObservableProperty]
-    private string? _banner = shell.Services.StartupMessage;
+    private string? _banner;
 
     public bool BannerIsError => shell.Services.StartupMessageIsError;
 
@@ -67,6 +136,8 @@ public sealed partial class DashboardViewModel(IShell shell) : ObservableObject
     [RelayCommand]
     private Task ShowHistoryAsync()
     {
+        // The user looks at what happened, so the tray stops asking for attention about failed runs.
+        shell.Services.Activity.ClearProblem();
         var history = new HistoryViewModel(shell);
         shell.Show(history);
         return history.LoadAsync();
@@ -206,6 +277,15 @@ public sealed partial class JobCardViewModel : ObservableObject
     public bool ArchiveEnabled => Job.Archive.Enabled;
 
     public bool RequiresApproval => Job.RequireApproval;
+
+    /// <summary>"On connect · Daily 20:00", or null when the job only runs manually.</summary>
+    public string? TriggerText => Job.Trigger.IsAutomatic
+        ? string.Join(" · ", new[]
+        {
+            Job.Trigger.OnTargetConnected ? "On connect" : null,
+            Job.Trigger.Schedule.Kind != ScheduleKind.None ? ScheduleCalculator.Describe(Job.Trigger.Schedule) : null,
+        }.Where(s => s is not null))
+        : null;
 
     public bool CanEdit => !_shell.Services.IsReadOnly;
 

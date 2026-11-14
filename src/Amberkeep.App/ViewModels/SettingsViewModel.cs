@@ -17,8 +17,61 @@ public sealed partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(IShell shell)
     {
         _shell = shell;
-        _historyLimit = shell.Services.Config.Settings.HistoryLimit;
+        var settings = shell.Services.Config.Settings;
+        _historyLimit = settings.HistoryLimit;
+        _closeToTray = settings.CloseToTray;
+        _startWithSystem = settings.StartWithSystem;
+        _notifications = settings.Notifications;
+        _automaticRunsPaused = settings.AutomaticRunsPaused;
         _loading = false;
+    }
+
+    [ObservableProperty]
+    private bool _closeToTray;
+
+    [ObservableProperty]
+    private bool _startWithSystem;
+
+    [ObservableProperty]
+    private bool _notifications;
+
+    [ObservableProperty]
+    private bool _automaticRunsPaused;
+
+    partial void OnCloseToTrayChanged(bool value) => SaveSettings(s => s with { CloseToTray = value });
+
+    partial void OnNotificationsChanged(bool value) => SaveSettings(s => s with { Notifications = value });
+
+    partial void OnAutomaticRunsPausedChanged(bool value) => SaveSettings(s => s with { AutomaticRunsPaused = value });
+
+    partial void OnStartWithSystemChanged(bool value)
+    {
+        if (SaveSettings(s => s with { StartWithSystem = value }) && _shell.Services.SyncAutostart() is { } problem)
+        {
+            Status = problem;
+        }
+    }
+
+    /// <returns>True when the settings were saved.</returns>
+    private bool SaveSettings(Func<AppSettings, AppSettings> change)
+    {
+        if (_loading || !CanEdit)
+        {
+            return false;
+        }
+
+        try
+        {
+            var config = _shell.Services.Config;
+            _shell.Services.Save(config with { Settings = change(config.Settings) });
+            Status = null;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            Status = $"Not saved: {ex.Message}";
+            return false;
+        }
     }
 
     public bool CanEdit => !_shell.Services.IsReadOnly;

@@ -51,6 +51,20 @@ public sealed partial class MainViewModel : ObservableObject, IShell
 
     public void RequestExit() => ExitRequested?.Invoke(this, EventArgs.Empty);
 
+    /// <summary>Opens a backup that an automatic run prepared for review (analyzed again, so the list is current).</summary>
+    public void OpenReview(PendingReview review)
+    {
+        Services.PendingReviews.Remove(review.Target.Id);
+        var job = Services.Config.FindJob(review.Job.Id);
+        if (job?.FindTarget(review.Target.Id) is not { } target)
+        {
+            ShowDashboard();
+            return;
+        }
+
+        _ = new JobFlow(this).StartAsync(job, target, runWithoutReview: false);
+    }
+
     public void Show(object page) => CurrentPage = page;
 
     public void ShowDashboard()

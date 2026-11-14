@@ -5,15 +5,26 @@ using Amberkeep.Storage.Targets;
 
 namespace Amberkeep.Storage.Cleanup;
 
-/// <summary>Removes the system autostart entry. Implemented in phase 6.</summary>
+/// <summary>The optional "start with the system" entry (the only thing Amberkeep writes outside its folder).</summary>
 public interface IAutostart
 {
+    bool IsEnabled { get; }
+
+    /// <summary>Creates or updates the entry so it starts the current executable in the background.</summary>
+    void Enable();
+
     void Remove();
 }
 
 public sealed class NoAutostart : IAutostart
 {
     public static NoAutostart Instance { get; } = new();
+
+    public bool IsEnabled => false;
+
+    public void Enable()
+    {
+    }
 
     public void Remove()
     {

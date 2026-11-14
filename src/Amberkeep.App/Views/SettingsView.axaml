@@ -14,6 +14,27 @@
       <TextBlock Classes="muted" Text="{Binding Status}" TextWrapping="Wrap"
                  IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
+      <!-- Background -->
+      <Border Classes="card">
+        <StackPanel Spacing="10" IsEnabled="{Binding CanEdit}">
+          <TextBlock Classes="section" Text="Background" Margin="0" />
+          <CheckBox IsChecked="{Binding CloseToTray}">
+            <StackPanel>
+              <TextBlock Text="Keep running in the tray when the window is closed" />
+              <TextBlock Classes="muted small" Text="Needed for automatic backups. Quit from the tray icon's menu." />
+            </StackPanel>
+          </CheckBox>
+          <CheckBox IsChecked="{Binding StartWithSystem}">
+            <StackPanel>
+              <TextBlock Text="Start with the system" />
+              <TextBlock Classes="muted small" Text="Starts in the tray after you sign in. This is the only thing Amberkeep writes outside its folder; it is removed when you switch it off." />
+            </StackPanel>
+          </CheckBox>
+          <CheckBox IsChecked="{Binding Notifications}" Content="Show notifications about automatic backups" />
+          <CheckBox IsChecked="{Binding AutomaticRunsPaused}" Content="Pause automatic backups" />
+        </StackPanel>
+      </Border>
+
       <!-- History -->
       <Border Classes="card">
         <StackPanel Spacing="10">

@@ -11,8 +11,9 @@ namespace Amberkeep.App.Services;
 /// <summary>Everything the view models need, created once at start-up.</summary>
 public sealed class AppServices
 {
-    private AppServices(string baseDirectory, IWritableFileSystem fileSystem, IVolumeProvider volumes, TimeProvider time)
+    private AppServices(string baseDirectory, IWritableFileSystem fileSystem, IVolumeProvider volumes, TimeProvider time, IAutostart autostart)
     {
+        Autostart = autostart;
         FileSystem = fileSystem;
         Volumes = volumes;
         Time = time;
@@ -21,10 +22,18 @@ public sealed class AppServices
         Registry = new TargetRegistry(fileSystem, volumes, time);
         Locator = new TargetLocator(fileSystem, volumes);
         Runner = new JobRunner(fileSystem, volumes, History, time);
-        Cleanup = new CleanupService(Store, History, fileSystem, volumes, NoAutostart.Instance);
+        Cleanup = new CleanupService(Store, History, fileSystem, volumes, autostart);
     }
 
     public IWritableFileSystem FileSystem { get; }
+
+    public IAutostart Autostart { get; }
+
+    public ActivityMonitor Activity { get; } = new();
+
+    public RunGate Gate { get; } = new();
+
+    public PendingReviews PendingReviews { get; } = new();
 
     public IVolumeProvider Volumes { get; }
 
@@ -52,12 +61,13 @@ public sealed class AppServices
 
     public bool StartupMessageIsError { get; private set; }
 
-    public static AppServices Create(string baseDirectory) =>
-        Create(baseDirectory, PhysicalFileSystem.Instance, PhysicalVolumeProvider.Instance, TimeProvider.System);
+    public static AppServices Create(string baseDirectory, IAutostart autostart) =>
+        Create(baseDirectory, PhysicalFileSystem.Instance, PhysicalVolumeProvider.Instance, TimeProvider.System, autostart);
 
-    public static AppServices Create(string baseDirectory, IWritableFileSystem fileSystem, IVolumeProvider volumes, TimeProvider time)
+    public static AppServices Create(
+        string baseDirectory, IWritableFileSystem fileSystem, IVolumeProvider volumes, TimeProvider time, IAutostart? autostart = null)
     {
-        var services = new AppServices(baseDirectory, fileSystem, volumes, time);
+        var services = new AppServices(baseDirectory, fileSystem, volumes, time, autostart ?? NoAutostart.Instance);
         services.Load();
         return services;
     }
@@ -71,15 +81,69 @@ public sealed class AppServices
             throw new InvalidOperationException(StartupMessage ?? "Settings are read-only.");
         }
 
-        Store.Save(config);
-        Accept(config);
+        lock (_saveLock)
+        {
+            Store.Save(config);
+            Accept(config);
+        }
     }
 
+    // Saves come from the UI and from background runs; one at a time (the lock is re-entrant for Update).
+    private readonly Lock _saveLock = new();
+
     /// <summary>Makes an already saved configuration current (e.g. returned by the clean-up service).</summary>
+    /// <summary>
+    /// Changes the current configuration and saves it, serialized with other updates, so that a background
+    /// change (e.g. a target found under a new drive letter) and a change made in the UI do not overwrite each other.
+    /// </summary>
+    public void Update(Func<AppConfig, AppConfig> change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        lock (_saveLock)
+        {
+            Save(change(Config));
+        }
+    }
+
     public void Accept(AppConfig config)
     {
         Config = config;
         Runner.HistoryLimit = config.Settings.HistoryLimit;
+        ConfigChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Raised after the configuration changed (possibly on a background thread).</summary>
+    public event EventHandler? ConfigChanged;
+
+    /// <summary>
+    /// Makes the system autostart entry match the settings: creates or refreshes it (the program may have moved)
+    /// when "start with the system" is on, removes it otherwise. Returns a problem description, or null.
+    /// </summary>
+    public string? SyncAutostart()
+    {
+        if (IsReadOnly)
+        {
+            // The settings are not ours (newer version or not writable); leave the entry as it is.
+            return null;
+        }
+
+        try
+        {
+            if (Config.Settings.StartWithSystem)
+            {
+                Autostart.Enable();
+            }
+            else if (Autostart.IsEnabled)
+            {
+                Autostart.Remove();
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return $"The autostart entry could not be updated: {ex.Message}";
+        }
     }
 
     private void Load()

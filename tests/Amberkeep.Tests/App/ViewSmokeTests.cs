@@ -1,4 +1,5 @@
 using Amberkeep.App;
+using Amberkeep.App.Services;
 using Amberkeep.App.ViewModels;
 using Amberkeep.App.Views;
 using Amberkeep.Core.Execution;
@@ -83,4 +84,33 @@ public sealed class ViewSmokeTests : IDisposable
             },
             TestContext.Current.CancellationToken);
     }
+}
+
+/// <summary>Tray icons and notifications render without errors.</summary>
+public sealed class BackgroundUiSmokeTests
+{
+    [Fact]
+    public async Task Tray_icon_and_notification_render() => await HeadlessApp.Session.Dispatch(
+        () =>
+        {
+            ActivityState[] states =
+            [
+                new(ActivityKind.Idle, "Amberkeep", 0, false),
+                new(ActivityKind.Analyzing, "Analyzing", 0, false),
+                new(ActivityKind.Running, "Running", 45, false),
+                new(ActivityKind.Running, "Running", 100, true),
+                new(ActivityKind.Idle, "Attention", 0, true),
+            ];
+            foreach (var state in states)
+            {
+                Assert.NotNull(Amberkeep.App.Platform.TrayIconRenderer.Render(state));
+            }
+
+            var toast = new Amberkeep.App.Platform.NotificationWindow("Photos → External HDD: 12 changes", "Review the changes to run the backup.", null);
+            toast.Show();
+            toast.UpdateLayout();
+            Assert.True(toast.IsVisible);
+            toast.Close();
+        },
+        TestContext.Current.CancellationToken);
 }

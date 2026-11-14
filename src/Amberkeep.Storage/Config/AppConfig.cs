@@ -110,7 +110,9 @@ public sealed record AppConfig
             Exclusions = (j.Exclusions ?? []).Where(e => e is not null).ToList(),
             MassRemovalGuard = j.MassRemovalGuard ?? new MassRemovalGuard(),
             Archive = j.Archive ?? new ArchiveSettings(),
-            Trigger = j.Trigger ?? new TriggerConfig(),
+            Trigger = (j.Trigger ?? new TriggerConfig()) is var trigger
+                ? trigger with { Schedule = trigger.Schedule ?? new ScheduleConfig() }
+                : new TriggerConfig(),
             Targets = (j.Targets ?? []).Where(t => t is not null).Select(t => t with
             {
                 Name = t.Name ?? string.Empty,
@@ -143,15 +145,39 @@ public sealed record ArchiveSettings
     public int? RetentionDays { get; init; } = 30;
 }
 
-public enum TriggerKind
+public enum ScheduleKind
 {
-    Manual,
+    None,
+    Daily,
+    Weekly,
+    Interval,
 }
 
-/// <summary>When a job runs by itself. Extended in phase 6 (target connected, schedule).</summary>
+/// <summary>A recurring time for automatic runs, in local time (see <see cref="ScheduleCalculator"/>).</summary>
+public sealed record ScheduleConfig
+{
+    public ScheduleKind Kind { get; init; } = ScheduleKind.None;
+
+    /// <summary>Time of day for daily and weekly schedules.</summary>
+    public TimeOnly Time { get; init; } = new(20, 0);
+
+    /// <summary>Day for weekly schedules.</summary>
+    public DayOfWeek DayOfWeek { get; init; } = DayOfWeek.Monday;
+
+    /// <summary>Hours between runs for interval schedules.</summary>
+    public int IntervalHours { get; init; } = 6;
+}
+
+/// <summary>When a job runs by itself (SPEC 4.6). By default it never does.</summary>
 public sealed record TriggerConfig
 {
-    public TriggerKind Kind { get; init; } = TriggerKind.Manual;
+    /// <summary>Run when the target disk is connected.</summary>
+    public bool OnTargetConnected { get; init; }
+
+    public ScheduleConfig Schedule { get; init; } = new();
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsAutomatic => OnTargetConnected || Schedule.Kind != ScheduleKind.None;
 }
 
 public sealed record TargetConfig
@@ -261,6 +287,11 @@ public sealed record JobConfig
         if (Archive.RetentionDays is < 1)
         {
             errors.Add("Archive retention must be at least one day.");
+        }
+
+        if (Trigger.Schedule is { Kind: ScheduleKind.Interval, IntervalHours: < 1 or > 24 * 31 })
+        {
+            errors.Add("The schedule interval must be between 1 hour and 31 days.");
         }
 
         foreach (var target in Targets)
