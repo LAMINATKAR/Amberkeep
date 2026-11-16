@@ -99,7 +99,14 @@
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:DiffNodeViewModel">
               <!-- Fixed-width columns for the chevron and the dot keep names of files and folders aligned. -->
-              <Grid ColumnDefinitions="20,Auto,16,*,Auto,Auto" Margin="{Binding Indent, Converter={x:Static app:Converters.Indent}}">
+              <Grid ColumnDefinitions="20,Auto,16,*,Auto,Auto" Margin="{Binding Indent, Converter={x:Static app:Converters.Indent}}"
+                    Background="Transparent">
+                <Grid.ContextMenu>
+                  <ContextMenu>
+                    <MenuItem Header="Show in source folder" Command="{Binding ShowInSourceCommand}" />
+                    <MenuItem Header="Show in target folder" Command="{Binding ShowInTargetCommand}" />
+                  </ContextMenu>
+                </Grid.ContextMenu>
                 <Button Classes="icon" Command="{Binding ToggleExpandedCommand}" IsVisible="{Binding HasChildren}"
                         Content="{Binding IsExpanded, Converter={x:Static app:Converters.Chevron}}" />
                 <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" IsEnabled="{Binding IsCheckable}"

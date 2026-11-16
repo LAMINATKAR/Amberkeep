@@ -127,6 +127,7 @@ public sealed class Phase5Tests : IDisposable
 
         _app.Services.Save(new AppConfig());
         _app.Dialogs.OpenFiles.Enqueue(file);
+        _app.Dialogs.OptionAnswers.Enqueue([]);
         await settings.ImportCommand.ExecuteAsync(null);
 
         Assert.Equal(job.Id, Assert.Single(_app.Services.Config.Jobs).Id);

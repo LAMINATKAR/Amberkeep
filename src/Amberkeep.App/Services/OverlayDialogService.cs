@@ -69,16 +69,64 @@ internal sealed class OverlayDialogService(MainViewModel host, Func<TopLevel?> t
             return;
         }
 
+        if (OperatingSystem.IsWindows())
+        {
+            Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
+        }
+        else
+        {
+            Start(new ProcessStartInfo(OperatingSystem.IsMacOS() ? "open" : "xdg-open") { ArgumentList = { path } });
+        }
+    }
+
+    public void RevealInFileManager(string path)
+    {
+        if (!File.Exists(path) && !Directory.Exists(path))
+        {
+            if (FindExistingParent(path) is { } parent)
+            {
+                OpenFolder(parent);
+            }
+
+            return;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            Start(new ProcessStartInfo("open") { ArgumentList = { "-R", path } });
+        }
+        else if (FindExistingParent(path) is { } parent)
+        {
+            // xdg-open cannot select an item; its folder is the closest it gets.
+            OpenFolder(parent);
+        }
+    }
+
+    /// <summary>The nearest folder above <paramref name="path"/> that exists, or null.</summary>
+    internal static string? FindExistingParent(string path)
+    {
+        for (var current = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path));
+             !string.IsNullOrEmpty(current);
+             current = Path.GetDirectoryName(current))
+        {
+            if (Directory.Exists(current))
+            {
+                return current;
+            }
+        }
+
+        return null;
+    }
+
+    private static void Start(ProcessStartInfo info)
+    {
         try
         {
-            if (OperatingSystem.IsWindows())
-            {
-                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
-            }
-            else
-            {
-                Process.Start(new ProcessStartInfo(OperatingSystem.IsMacOS() ? "open" : "xdg-open", $"\"{path}\"") { UseShellExecute = false });
-            }
+            using var process = Process.Start(info);
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
         {

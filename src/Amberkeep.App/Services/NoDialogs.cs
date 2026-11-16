@@ -23,4 +23,8 @@ public sealed class NoDialogs : IDialogService
     public void OpenFolder(string path)
     {
     }
+
+    public void RevealInFileManager(string path)
+    {
+    }
 }

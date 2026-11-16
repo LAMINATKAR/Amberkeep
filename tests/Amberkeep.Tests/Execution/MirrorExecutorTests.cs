@@ -251,8 +251,8 @@ public sealed class MirrorExecutorTests : IDisposable
         var guard = new WriteGuard(_fx.Source.Root, _fx.Target.Root);
 
         Assert.Equal(_fx.TargetPath("x.txt"), guard.Check(_fx.TargetPath("x.txt")));
-        Assert.Throws<InvalidOperationException>(() => guard.Check(_fx.Source.FullPath("x.txt")));
-        Assert.Throws<InvalidOperationException>(() => guard.Check(Path.Combine(_fx.BasePath, "elsewhere.txt")));
-        Assert.Throws<InvalidOperationException>(() => guard.Check(_fx.TargetPath("../source/x.txt")));
+        Assert.Throws<WriteGuardException>(() => guard.Check(_fx.Source.FullPath("x.txt")));
+        Assert.Throws<WriteGuardException>(() => guard.Check(Path.Combine(_fx.BasePath, "elsewhere.txt")));
+        Assert.Throws<WriteGuardException>(() => guard.Check(_fx.TargetPath("../source/x.txt")));
     }
 }

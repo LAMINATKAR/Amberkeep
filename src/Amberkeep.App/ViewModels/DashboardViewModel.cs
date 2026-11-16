@@ -338,13 +338,7 @@ public sealed partial class JobCardViewModel : ObservableObject
     public bool RequiresApproval => Job.RequireApproval;
 
     /// <summary>"On connect · Daily 20:00", or null when the job only runs manually.</summary>
-    public string? TriggerText => Job.Trigger.IsAutomatic
-        ? string.Join(" · ", new[]
-        {
-            Job.Trigger.OnTargetConnected ? "On connect" : null,
-            Job.Trigger.Schedule.Kind != ScheduleKind.None ? ScheduleCalculator.Describe(Job.Trigger.Schedule) : null,
-        }.Where(s => s is not null))
-        : null;
+    public string? TriggerText => Format.Trigger(Job.Trigger);
 
     public bool CanEdit => !_shell.Services.IsReadOnly;
 

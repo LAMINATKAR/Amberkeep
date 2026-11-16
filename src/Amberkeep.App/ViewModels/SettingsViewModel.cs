@@ -206,12 +206,28 @@ public sealed partial class SettingsViewModel : ObservableObject
         try
         {
             var imported = ConfigTransfer.ReadImport(_shell.Services.FileSystem, path);
-            var existing = imported.Count(j => _shell.Services.Config.FindJob(j.Id) is not null);
-            var replace = existing > 0 && await _shell.Dialogs.ConfirmAsync(
-                "Replace existing backups?",
-                $"{Format.Count(existing, "backup in the file already exists", "backups in the file already exist")} here. Replace them with the imported version?",
-                "Replace");
+            if (imported.Count == 0)
+            {
+                await _shell.Dialogs.ShowMessageAsync("Import finished", "The file contains no backups.");
+                return;
+            }
 
+            // The user sees what the file would set up before anything is checked on disk: a path in the file
+            // could point at another computer, and reaching it sends the user's sign-in there.
+            var existing = imported.Count(j => _shell.Services.Config.FindJob(j.Id) is not null);
+            var answers = await _shell.Dialogs.ConfirmWithOptionsAsync(
+                $"Import {Format.Count(imported.Count, "backup", "backups")}?",
+                ImportSummary(imported),
+                "Import",
+                existing > 0
+                    ? [new DialogOption($"Replace {Format.Count(existing, "backup that already exists", "backups that already exist")} here")]
+                    : []);
+            if (answers is null)
+            {
+                return;
+            }
+
+            var replace = existing > 0 && answers[0];
             var result = ConfigTransfer.Merge(_shell.Services.Config, imported, replace, _shell.Services.Store.BaseDirectory);
             if (result.Added.Count + result.Replaced.Count > 0)
             {
@@ -230,12 +246,43 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
 
             lines.AddRange(result.Skipped.Select(s => $"Skipped '{s.Name}': {s.Reason}"));
-            await _shell.Dialogs.ShowMessageAsync("Import finished", lines.Count > 0 ? string.Join(Environment.NewLine, lines) : "The file contains no backups.");
+            await _shell.Dialogs.ShowMessageAsync("Import finished", string.Join(Environment.NewLine, lines));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             await _shell.Dialogs.ShowMessageAsync("Import failed", ex.Message);
         }
+    }
+
+    /// <summary>What each backup in an import file would set up: shown before importing, from the file alone.</summary>
+    internal static string ImportSummary(IReadOnlyList<JobConfig> jobs)
+    {
+        var lines = new List<string>();
+        foreach (var job in jobs)
+        {
+            lines.Add(job.Name);
+            lines.Add($"    From: {Shown(job.SourcePath)}");
+            lines.AddRange(job.Targets.Select(t => $"    To: {t.Name} – {Shown(t.LastKnownPath)}"));
+            lines.Add($"    Runs: {Format.Trigger(job.Trigger) ?? "only when you start it"}");
+            lines.Add(job.RequireApproval ? "    Asks before every run: yes" : "    Asks before every run: no – changes are applied without review");
+            // Off as a whole, or both of its limits switched off (100 % and 0 files).
+            if (job.MassRemovalGuard is { Enabled: false } or { Percent: >= 100, Count: <= 0 })
+            {
+                lines.Add("    Guard against removing many files: off");
+            }
+
+            lines.Add(string.Empty);
+        }
+
+        lines.Add("The backups are imported with these settings. You can change them later in the backup editor.");
+        if (jobs.Any(j => ConfigTransfer.IsNetworkPath(j.SourcePath) || j.Targets.Any(t => ConfigTransfer.IsNetworkPath(t.LastKnownPath))))
+        {
+            lines.Add("Paths marked (network) are on another computer, and Windows signs in to it with your account. Import only if you know that computer.");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+
+        static string Shown(string path) => ConfigTransfer.IsNetworkPath(path) ? $"{path} (network)" : path;
     }
 
     [RelayCommand]

@@ -107,7 +107,7 @@ public sealed partial class HistoryStore(string directory, IWritableFileSystem f
         try
         {
             return fileSystem.FileExists(path)
-                ? StorageFiles.Read(fileSystem, path, StorageJsonContext.Default.ListRecordedChange) ?? []
+                ? RunRecord.NormalizedChanges(StorageFiles.Read(fileSystem, path, StorageJsonContext.Default.ListRecordedChange))
                 : [];
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
@@ -169,7 +169,7 @@ public sealed partial class HistoryStore(string directory, IWritableFileSystem f
     {
         try
         {
-            return StorageFiles.Read(fileSystem, path, StorageJsonContext.Default.RunRecord);
+            return StorageFiles.Read(fileSystem, path, StorageJsonContext.Default.RunRecord)?.Normalized();
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {

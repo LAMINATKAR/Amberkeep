@@ -63,9 +63,9 @@ public class ExclusionMatcherTests
     [Fact]
     public void Matches_names_regardless_of_unicode_form()
     {
-        var matcher = new ExclusionMatcher(["Café/"], caseSensitive: true);
+        var matcher = new ExclusionMatcher(["Café/"], caseSensitive: true);  // NFC
 
-        Assert.True(matcher.IsExcluded("Café", isDirectory: true));
+        Assert.True(matcher.IsExcluded("Café", isDirectory: true));         // NFD
     }
 
     [Fact]

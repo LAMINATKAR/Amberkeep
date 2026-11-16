@@ -23,7 +23,8 @@ public sealed class ExclusionMatcher
         ArgumentNullException.ThrowIfNull(patterns);
 
         // Not RegexOptions.Compiled: a matcher lives for one analysis, so compiling costs more than it saves.
-        var options = RegexOptions.CultureInvariant;
+        // NonBacktracking: matching time stays linear, so no pattern (also from an imported file) can stall an analysis.
+        var options = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
         if (!caseSensitive)
         {
             options |= RegexOptions.IgnoreCase;

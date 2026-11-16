@@ -1,5 +1,7 @@
+using Amberkeep.App.Services;
 using Amberkeep.App.ViewModels;
 using Amberkeep.Core.Diff;
+using Amberkeep.Core.Paths;
 using Amberkeep.Tests.Infrastructure;
 
 namespace Amberkeep.Tests.App;
@@ -150,6 +152,68 @@ public sealed class DiffViewModelTests : IDisposable
 
         Assert.Contains("1 change selected", vm.SelectionText, StringComparison.Ordinal);
         Assert.Contains("2 KB to copy", vm.SelectionText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Rows_are_shown_in_the_file_manager_on_the_sides_where_they_exist()
+    {
+        _fx.Source.File("docs/new.txt").File("docs/changed.txt", "new", T0.AddHours(1));
+        _fx.Target.File("docs/changed.txt", "old", T0).File("docs/removed.txt");
+        var vm = await CreateAsync();
+        vm.ExpandAllCommand.Execute(null);
+        var docs = vm.Rows.Single(r => r.Name == "docs");
+        var added = vm.Rows.Single(r => r.Name == "new.txt");
+        var changed = vm.Rows.Single(r => r.Name == "changed.txt");
+        var removed = vm.Rows.Single(r => r.Name == "removed.txt");
+
+        Assert.True(docs.ShowInSourceCommand.CanExecute(null));
+        Assert.True(docs.ShowInTargetCommand.CanExecute(null));
+        Assert.True(added.ShowInSourceCommand.CanExecute(null));
+        Assert.False(added.ShowInTargetCommand.CanExecute(null));
+        Assert.False(removed.ShowInSourceCommand.CanExecute(null));
+        Assert.True(removed.ShowInTargetCommand.CanExecute(null));
+
+        docs.ShowInSourceCommand.Execute(null);
+        added.ShowInSourceCommand.Execute(null);
+        changed.ShowInTargetCommand.Execute(null);
+        removed.ShowInTargetCommand.Execute(null);
+
+        Assert.Equal(
+            [
+                Path.Combine(_fx.Source.Root, "docs"),
+                Path.Combine(_fx.Source.Root, "docs", "new.txt"),
+                Path.Combine(_fx.Target.Root, "docs", "changed.txt"),
+                Path.Combine(_fx.Target.Root, "docs", "removed.txt"),
+            ],
+            _app.Dialogs.Revealed);
+    }
+
+    [Fact]
+    public async Task Case_renamed_rows_are_shown_under_each_side_own_name()
+    {
+        _fx.Source.File("Photos/Holiday.JPG", "img");
+        _fx.Target.File("photos/holiday.jpg", "img");
+        var diff = await _fx.AnalyzeAsync(new DiffOptions { CaseSensitivity = CaseSensitivity.Insensitive });
+        var vm = new DiffViewModel(_app.Shell, diff, "Test", archiveEnabled: false, _ => Task.CompletedTask);
+        var file = vm.Rows.Single(r => r.Name == "Holiday.JPG");
+
+        file.ShowInSourceCommand.Execute(null);
+        file.ShowInTargetCommand.Execute(null);
+
+        Assert.Equal(
+            [Path.Combine(_fx.Source.Root, "Photos", "Holiday.JPG"), Path.Combine(_fx.Target.Root, "photos", "holiday.jpg")],
+            _app.Dialogs.Revealed);
+    }
+
+    [Fact]
+    public void A_missing_item_falls_back_to_its_nearest_existing_folder()
+    {
+        var folder = Path.Combine(_fx.BasePath, "kept");
+        Directory.CreateDirectory(folder);
+
+        Assert.Equal(folder, OverlayDialogService.FindExistingParent(Path.Combine(folder, "gone", "deeper", "file.txt")));
+        Assert.Equal(folder, OverlayDialogService.FindExistingParent(Path.Combine(folder, "file.txt")));
+        Assert.Equal(folder, OverlayDialogService.FindExistingParent(Path.Combine(folder, "gone") + Path.DirectorySeparatorChar));
     }
 
     private async Task<DiffViewModel> CreateAsync() =>

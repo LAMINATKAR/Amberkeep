@@ -38,8 +38,29 @@ public static partial class ArchiveCleaner
 
     /// <summary>Deletes snapshots in the archive of <paramref name="targetPath"/> older than <paramref name="cutoff"/>.</summary>
     /// <returns>Names of the deleted snapshots.</returns>
-    public static IReadOnlyList<string> PurgeSnapshots(IWritableFileSystem fileSystem, string targetPath, DateTimeOffset cutoff) =>
-        Purge(fileSystem, new WriteGuard(null, ArchiveRoot(targetPath)), ArchiveRoot(targetPath), cutoff, keep: null);
+    /// <exception cref="IOException"><c>.amberkeep</c> or its archive is a link or junction.</exception>
+    public static IReadOnlyList<string> PurgeSnapshots(IWritableFileSystem fileSystem, string targetPath, DateTimeOffset cutoff)
+    {
+        EnsureNotLinked(fileSystem, targetPath);
+        return Purge(fileSystem, new WriteGuard(null, ArchiveRoot(targetPath)), ArchiveRoot(targetPath), cutoff, keep: null);
+    }
+
+    /// <summary>
+    /// Refuses an archive reached through a link: with <c>.amberkeep</c> or <c>archive</c> linked to another folder,
+    /// the snapshots of that folder would be listed, deleted or restored as if they were this target's.
+    /// </summary>
+    /// <exception cref="IOException">One of the two folders is a link or junction.</exception>
+    public static void EnsureNotLinked(IWritableFileSystem fileSystem, string targetPath)
+    {
+        ArgumentNullException.ThrowIfNull(fileSystem);
+        foreach (var folder in new[] { Path.Join(targetPath, Scanning.Scanner.ProgramFolderName), ArchiveRoot(targetPath) })
+        {
+            if (fileSystem.GetEntry(folder) is { IsLink: true })
+            {
+                throw new IOException($"{folder} is a link or junction. Amberkeep does not use an archive through links; remove the link.");
+            }
+        }
+    }
 
     /// <summary>Deletes snapshots older than <paramref name="cutoff"/>. Folders with other names are left alone.</summary>
     /// <returns>Names of the deleted snapshots.</returns>

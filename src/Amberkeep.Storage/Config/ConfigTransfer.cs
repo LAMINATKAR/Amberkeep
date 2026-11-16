@@ -63,7 +63,10 @@ public static class ConfigTransfer
         return new AppConfig { Jobs = file.Jobs ?? [] }.Normalized().Jobs;
     }
 
-    /// <summary>Adds imported jobs to <paramref name="config"/>. Invalid jobs are skipped with a reason.</summary>
+    /// <summary>
+    /// Adds imported jobs to <paramref name="config"/> with their settings as in the file (the user confirmed a summary
+    /// of them first). Invalid jobs are skipped with a reason.
+    /// </summary>
     /// <param name="config">Current configuration.</param>
     /// <param name="imported">Jobs read by <see cref="ReadImport"/>.</param>
     /// <param name="replaceExisting">Replace jobs with the same id; otherwise they are skipped.</param>
@@ -105,5 +108,24 @@ public static class ConfigTransfer
         }
 
         return new ImportResult(current, added, replaced, skipped);
+    }
+
+    /// <summary>A path on another computer (<c>\\server\share</c>); reaching it sends the user's sign-in to that computer.</summary>
+    public static bool IsNetworkPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || path.Length < 2 || !IsSlash(path[0]) || !IsSlash(path[1]))
+        {
+            return false;
+        }
+
+        // \\?\C:\… and \\.\C:\… are local; \\?\UNC\server\… is not.
+        if (path.Length >= 4 && path[2] is '?' or '.' && IsSlash(path[3]))
+        {
+            return path[4..].StartsWith("UNC", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return true;
+
+        static bool IsSlash(char c) => c is '\\' or '/';
     }
 }

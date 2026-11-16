@@ -78,6 +78,12 @@ public sealed class Scanner(IFileSystem fileSystem)
                     continue;
                 }
 
+                if (PathKey.IsChangedByWindows(fullPath, child.Name))
+                {
+                    skipped.Add(new ScanIssue(childPath, "Windows does not use this name as written (a trailing dot or space, or a device name), so it is left alone."));
+                    continue;
+                }
+
                 entries.Add(new ScannedEntry(childPath, child.Kind, child.Length, child.LastWriteTimeUtc));
                 if (isDirectory)
                 {

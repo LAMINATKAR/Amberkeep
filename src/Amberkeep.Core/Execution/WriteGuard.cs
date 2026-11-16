@@ -2,9 +2,12 @@ using Amberkeep.Core.Paths;
 
 namespace Amberkeep.Core.Execution;
 
+/// <summary>A write the <see cref="WriteGuard"/> refused; nothing was written.</summary>
+internal sealed class WriteGuardException(string message) : InvalidOperationException(message);
+
 /// <summary>
 /// Enforces "the source is never written to" (SPEC chapter 3) in code: every write must go under the target root and never under the source root.
-/// A violation is a program bug, so it throws instead of being reported as a failure.
+/// A refused write throws <see cref="WriteGuardException"/>; a run records it as a failure of that item and goes on.
 /// </summary>
 internal sealed class WriteGuard
 {
@@ -26,12 +29,12 @@ internal sealed class WriteGuard
         var full = WithSeparator(path);
         if (!full.StartsWith(_targetRoot, _comparison))
         {
-            throw new InvalidOperationException($"Refusing to write outside the target folder: {path}");
+            throw new WriteGuardException($"Refusing to write outside the target folder: {path}");
         }
 
         if (_sourceRoot is not null && full.StartsWith(_sourceRoot, _comparison))
         {
-            throw new InvalidOperationException($"Refusing to write into the source folder: {path}");
+            throw new WriteGuardException($"Refusing to write into the source folder: {path}");
         }
 
         return path;

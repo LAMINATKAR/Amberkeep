@@ -23,6 +23,7 @@ public sealed class ArchiveBrowser(IWritableFileSystem fileSystem)
     /// <param name="withTotals">Count files and bytes of each snapshot (scans them); otherwise both are 0 – see <see cref="Measure"/>.</param>
     public IReadOnlyList<SnapshotInfo> ListSnapshots(string targetPath, bool withTotals = true)
     {
+        ArchiveCleaner.EnsureNotLinked(fileSystem, targetPath);
         var root = ArchiveCleaner.ArchiveRoot(targetPath);
         if (!fileSystem.DirectoryExists(root))
         {
@@ -100,6 +101,7 @@ public sealed class ArchiveBrowser(IWritableFileSystem fileSystem)
             var target = PathKey.ToSystemPath(destination, relative);
             try
             {
+                CheckRestorePath(destination, relative, target);
                 var existing = fileSystem.GetEntry(target);
                 if (existing is { Kind: EntryKind.Directory })
                 {
@@ -148,6 +150,7 @@ public sealed class ArchiveBrowser(IWritableFileSystem fileSystem)
             throw new InvalidOperationException($"Not an archive snapshot: {snapshot.Path}");
         }
 
+        ArchiveCleaner.EnsureNotLinked(fileSystem, Path.GetDirectoryName(programFolder)!);
         fileSystem.DeleteDirectoryTree(full);
     }
 
@@ -197,6 +200,46 @@ public sealed class ArchiveBrowser(IWritableFileSystem fileSystem)
             throw;
         }
     }
+
+    /// <summary>
+    /// A restored file must land under the destination, by a plain name and not through a link: names come from the
+    /// archive on the target disk, which may have been written by another system.
+    /// </summary>
+    private void CheckRestorePath(string destination, string relative, string target)
+    {
+        if (relative.Split(PathKey.Separator).Any(segment => !IsPlainName(segment)))
+        {
+            throw new IOException("This name cannot be restored safely (empty, '.' or '..', a path separator or an invalid character).");
+        }
+
+        // Windows drops a trailing dot or space and maps device names; the file would then land under another name.
+        var full = Path.GetFullPath(target);
+        if (!string.Equals(full, target, StringComparison.Ordinal))
+        {
+            throw new IOException("Windows does not use this name as written (a trailing dot or space, or a device name), so it is not restored.");
+        }
+
+        var root = Path.TrimEndingDirectorySeparator(destination);
+        var comparison = CaseSensitivity.Auto.IsCaseSensitive() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        var prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(prefix, comparison))
+        {
+            throw new IOException("The file would be restored outside the chosen folder.");
+        }
+
+        for (var folder = Path.GetDirectoryName(target); folder is not null && folder.Length > root.Length; folder = Path.GetDirectoryName(folder))
+        {
+            if (fileSystem.GetEntry(folder) is { IsLink: true })
+            {
+                throw new IOException($"A folder on the way is a link or junction ({folder}). Amberkeep does not restore through links.");
+            }
+        }
+    }
+
+    private static bool IsPlainName(string name) =>
+        name.Length > 0
+        && name is not "." and not ".."
+        && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
 
     private static bool IsInsideProgramFolder(string path) =>
         path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries)

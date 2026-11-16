@@ -1,6 +1,7 @@
 // Development tool: renders the logo (LogoArt) into the application icon.
 // Usage: dotnet run --project tools/Amberkeep.IconGen
-// Writes src/Amberkeep.App/Assets/amberkeep.ico (committed) and sandbox/icon-preview.png. Run it after changing the logo.
+// Writes src/Amberkeep.App/Assets/amberkeep.ico and docs/images/logo.png (both committed) and sandbox/icon-preview.png.
+// Run it after changing the logo.
 using Amberkeep.App;
 using Amberkeep.App.Platform;
 using Avalonia;
@@ -31,6 +32,12 @@ using (var file = File.Create(icon))
 }
 
 Console.WriteLine($"{icon}  ({images.Count} sizes, {new FileInfo(icon).Length:N0} bytes)");
+
+// The logo for the README.
+var logo = Path.GetFullPath(Path.Combine("docs", "images", "logo.png"));
+Directory.CreateDirectory(Path.GetDirectoryName(logo)!);
+File.WriteAllBytes(logo, images.Single(i => i.size == 256).Item2);
+Console.WriteLine(logo);
 
 // A preview strip: every size side by side, plus each one magnified to 64 px to judge the small ones.
 var strip = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 12, Margin = new Thickness(12), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom };

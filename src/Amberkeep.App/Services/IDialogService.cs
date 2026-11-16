@@ -25,4 +25,10 @@ public interface IDialogService
     Task ShowTextAsync(string title, string text) => ShowMessageAsync(title, text);
 
     void OpenFolder(string path);
+
+    /// <summary>
+    /// Shows a file or folder in the system file manager with the item selected. When it no longer exists,
+    /// opens its nearest existing parent folder instead.
+    /// </summary>
+    void RevealInFileManager(string path);
 }

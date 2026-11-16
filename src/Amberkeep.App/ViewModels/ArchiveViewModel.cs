@@ -107,7 +107,20 @@ public sealed partial class ArchiveViewModel : ObservableObject
     public async Task LoadAsync()
     {
         // The list appears at once; file counts and sizes follow, one snapshot at a time.
-        var snapshots = await Task.Run(() => _browser.ListSnapshots(_targetPath, withTotals: false));
+        IReadOnlyList<SnapshotInfo> snapshots;
+        try
+        {
+            snapshots = await Task.Run(() => _browser.ListSnapshots(_targetPath, withTotals: false));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // E.g. the archive folder is a link, or the disk was removed.
+            Snapshots.Clear();
+            IsEmpty = true;
+            await _shell.Dialogs.ShowMessageAsync("The archive cannot be opened", ex.Message);
+            return;
+        }
+
         Snapshots.Clear();
         foreach (var snapshot in snapshots)
         {

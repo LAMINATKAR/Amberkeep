@@ -77,6 +77,26 @@ public sealed record RunRecord
 
     public bool ChangesTruncated { get; init; }
 
+    /// <summary>The record with missing values of a hand-edited or damaged file filled in, so that views and reports never meet a null.</summary>
+    public RunRecord Normalized() => this with
+    {
+        JobName = JobName ?? string.Empty,
+        TargetName = TargetName ?? string.Empty,
+        SourcePath = SourcePath ?? string.Empty,
+        TargetPath = TargetPath ?? string.Empty,
+        DiffCounts = DiffCounts?.Where(c => c is not null).ToList() ?? [],
+        Failures = Failures?
+            .Where(f => f is not null)
+            .Select(f => f with { RelativePath = f.RelativePath ?? string.Empty, Message = f.Message ?? string.Empty })
+            .ToList() ?? [],
+        Notes = Notes?.Where(n => n is not null).ToList() ?? [],
+        SelectedChanges = NormalizedChanges(SelectedChanges),
+    };
+
+    /// <summary>Changes without null entries or paths (a damaged <c>.changes.json</c>).</summary>
+    public static IReadOnlyList<RecordedChange> NormalizedChanges(IReadOnlyList<RecordedChange>? changes) =>
+        changes?.Where(c => c is not null && c.Path is not null).ToList() ?? [];
+
     public static RunRecord Create(
         Guid runId,
         Guid jobId,

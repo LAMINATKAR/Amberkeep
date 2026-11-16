@@ -60,6 +60,15 @@ internal static class MarkerFile
     public static bool BelongsTo(IFileSystem fileSystem, string targetFolder, Guid targetId) =>
         Read(fileSystem, targetFolder) is (MarkerState.Present, { } marker) && marker.TargetId == targetId;
 
-    public static void Write(IWritableFileSystem fileSystem, string targetFolder, TargetMarker marker) =>
+    /// <exception cref="IOException"><c>.amberkeep</c> is a link or junction; the marker would land in another folder.</exception>
+    public static void Write(IWritableFileSystem fileSystem, string targetFolder, TargetMarker marker)
+    {
+        ArgumentNullException.ThrowIfNull(fileSystem);
+        if (fileSystem.GetEntry(ProgramFolder(targetFolder)) is { IsLink: true })
+        {
+            throw new IOException($"{ProgramFolder(targetFolder)} is a link or junction. Amberkeep does not write its marker through links; remove the link.");
+        }
+
         StorageFiles.Write(fileSystem, PathOf(targetFolder), marker, StorageJsonContext.Default.TargetMarker);
+    }
 }

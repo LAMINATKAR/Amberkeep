@@ -17,7 +17,7 @@ public sealed class DiffResult
     /// <summary>Paths that could not be read. Nothing under them is changed on the target.</summary>
     public IReadOnlyList<DiffIssue> Errors { get; init; } = [];
 
-    /// <summary>Links that were not followed. Nothing under them is changed on the target.</summary>
+    /// <summary>Links that were not followed, and names Windows cannot handle reliably. Nothing under them is changed on the target.</summary>
     public IReadOnlyList<DiffIssue> Skipped { get; init; } = [];
 
     public IReadOnlyList<SafetyIssue> SafetyIssues { get; init; } = [];

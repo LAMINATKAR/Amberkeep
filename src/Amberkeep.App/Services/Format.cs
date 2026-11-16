@@ -1,6 +1,7 @@
 using System.Globalization;
 using Amberkeep.Core.Diff;
 using Amberkeep.Core.Execution;
+using Amberkeep.Storage.Config;
 
 namespace Amberkeep.App.Services;
 
@@ -23,6 +24,19 @@ public static class Format
         return unit == 0
             ? string.Create(Culture, $"{bytes} B")
             : string.Create(Culture, $"{value:0.#} {units[unit]}");
+    }
+
+    /// <summary>"On connect · Daily 20:00", or null when the job only runs manually.</summary>
+    public static string? Trigger(TriggerConfig trigger)
+    {
+        ArgumentNullException.ThrowIfNull(trigger);
+        return trigger.IsAutomatic
+            ? string.Join(" · ", new[]
+            {
+                trigger.OnTargetConnected ? "On connect" : null,
+                trigger.Schedule.Kind != ScheduleKind.None ? ScheduleCalculator.Describe(trigger.Schedule) : null,
+            }.Where(s => s is not null))
+            : null;
     }
 
     public static string Count(int count, string singular, string plural) =>

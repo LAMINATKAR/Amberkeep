@@ -19,6 +19,10 @@ public sealed record AppConfig
 
     public JobConfig? FindJob(Guid jobId) => Jobs.FirstOrDefault(j => j.Id == jobId);
 
+    /// <summary>A full path without characters that no path may contain (e.g. NUL from a hand-edited or imported file).</summary>
+    public static bool IsUsablePath(string? path) =>
+        !string.IsNullOrEmpty(path) && path.IndexOfAny(Path.GetInvalidPathChars()) < 0 && Path.IsPathFullyQualified(path);
+
     /// <summary>Adds the job or replaces the job with the same id.</summary>
     public AppConfig WithJob(JobConfig job)
     {
@@ -66,12 +70,12 @@ public sealed record AppConfig
         var jobs = pendingJob is null ? Jobs : Jobs.Where(j => j.Id != pendingJob.Id).Append(pendingJob);
         foreach (var job in jobs)
         {
-            if (Path.IsPathFullyQualified(job.SourcePath) && SafetyChecks.CheckOverlap(job.SourcePath, path, onDisk) is not null)
+            if (AppConfig.IsUsablePath(job.SourcePath) && SafetyChecks.CheckOverlap(job.SourcePath, path, onDisk) is not null)
             {
                 return $"The folder overlaps the source of the backup '{job.Name}' ({job.SourcePath}).";
             }
 
-            foreach (var target in job.Targets.Where(t => (t.Id != ignoreTargetId || (owner is not null && job.Id != owner)) && Path.IsPathFullyQualified(t.LastKnownPath)))
+            foreach (var target in job.Targets.Where(t => (t.Id != ignoreTargetId || (owner is not null && job.Id != owner)) && AppConfig.IsUsablePath(t.LastKnownPath)))
             {
                 if (SafetyChecks.CheckOverlap(target.LastKnownPath, path, onDisk) is not null)
                 {
@@ -117,7 +121,7 @@ public sealed record AppConfig
 
         foreach (var other in others.Jobs)
         {
-            foreach (var target in other.Targets.Where(t => Path.IsPathFullyQualified(t.LastKnownPath)))
+            foreach (var target in other.Targets.Where(t => AppConfig.IsUsablePath(t.LastKnownPath)))
             {
                 if (SafetyChecks.CheckOverlap(job.SourcePath, target.LastKnownPath, onDisk) is not null)
                 {
@@ -436,9 +440,9 @@ public sealed record JobConfig
             errors.Add("The job needs a name.");
         }
 
-        if (!Path.IsPathFullyQualified(SourcePath))
+        if (!AppConfig.IsUsablePath(SourcePath))
         {
-            errors.Add("The source folder must be a full path.");
+            errors.Add("The source folder must be a full, valid path.");
         }
 
         try
@@ -472,11 +476,11 @@ public sealed record JobConfig
 
         foreach (var target in Targets)
         {
-            if (!Path.IsPathFullyQualified(target.LastKnownPath))
+            if (!AppConfig.IsUsablePath(target.LastKnownPath))
             {
-                errors.Add($"Target '{target.Name}' must be a full path.");
+                errors.Add($"Target '{target.Name}' must be a full, valid path.");
             }
-            else if (Path.IsPathFullyQualified(SourcePath)
+            else if (AppConfig.IsUsablePath(SourcePath)
                      && SafetyChecks.CheckOverlap(SourcePath, target.LastKnownPath, onDisk) is { } overlap)
             {
                 errors.Add($"Target '{target.Name}': {overlap.Message}");

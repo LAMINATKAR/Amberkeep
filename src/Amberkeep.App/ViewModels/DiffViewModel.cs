@@ -213,6 +213,10 @@ public sealed partial class DiffViewModel : ObservableObject
         RecalculateSelection();
     }
 
+    /// <summary>Shows a row in the system file manager. Only opens a window; nothing is read or written.</summary>
+    internal void Reveal(string relativePath, bool onTarget) =>
+        _shell.Dialogs.RevealInFileManager(PathKey.ToSystemPath(onTarget ? Diff.TargetPath : Diff.SourcePath, relativePath));
+
     [RelayCommand(CanExecute = nameof(CanRun))]
     private async Task RunAsync()
     {
@@ -475,8 +479,25 @@ public sealed partial class DiffNodeViewModel : ObservableObject
         set => _owner.SetChecked(this, value == true);
     }
 
+    /// <summary>Path of this row on the source; null when it is not there (<see cref="DiffCategory.Removed"/>).</summary>
+    /// <remarks>A folder that only groups changes is unchanged, so it exists on both sides under the same name.</remarks>
+    public string? SourceRelativePath => Item is null ? Path : Item.Source?.RelativePath;
+
+    /// <summary>Path of this row on the target, in the target's own letter case; null when it is not there (<see cref="DiffCategory.New"/>).</summary>
+    public string? TargetRelativePath => Item is null ? Path : Item.Target?.RelativePath;
+
+    public bool ExistsOnSource => SourceRelativePath is not null;
+
+    public bool ExistsOnTarget => TargetRelativePath is not null;
+
     [RelayCommand]
     private void ToggleExpanded() => IsExpanded = !IsExpanded;
+
+    [RelayCommand(CanExecute = nameof(ExistsOnSource))]
+    private void ShowInSource() => _owner.Reveal(SourceRelativePath!, onTarget: false);
+
+    [RelayCommand(CanExecute = nameof(ExistsOnTarget))]
+    private void ShowInTarget() => _owner.Reveal(TargetRelativePath!, onTarget: true);
 
     internal void UpdateCountsFromChildren()
     {

@@ -708,6 +708,11 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             {
                 _failures.Add(new ExecutionFailure(item.RelativePath, operation, ex.Message));
             }
+            catch (WriteGuardException ex)
+            {
+                // Nothing was written; e.g. a name from a foreign disk that Windows resolves outside the target.
+                _failures.Add(new ExecutionFailure(item.RelativePath, operation, ex.Message));
+            }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 _failures.Add(new ExecutionFailure(item.RelativePath, operation, ex.Message));

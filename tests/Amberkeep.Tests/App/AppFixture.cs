@@ -55,6 +55,11 @@ internal sealed class FakeDialogs : IDialogService
     public void OpenFolder(string path)
     {
     }
+
+    /// <summary>Paths shown in the file manager, in order.</summary>
+    public List<string> Revealed { get; } = [];
+
+    public void RevealInFileManager(string path) => Revealed.Add(path);
 }
 
 /// <summary>App services over temp folders, with two fake volumes, and a shell with scripted dialogs.</summary>

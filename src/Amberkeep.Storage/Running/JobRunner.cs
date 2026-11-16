@@ -44,7 +44,7 @@ public sealed class JobRunner(
     {
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(target);
-        if (!Path.IsPathFullyQualified(job.SourcePath))
+        if (!AppConfig.IsUsablePath(job.SourcePath))
         {
             // Only a hand-edited file can get here; the editor does not save such a job.
             throw new InvalidOperationException($"The source folder of '{job.Name}' is missing or not a full path. Edit the backup.");

@@ -1,5 +1,7 @@
 // Development tool: renders every screen with sample data to PNG files (light and dark theme).
-// Usage: dotnet run --project tools/Amberkeep.Screenshots -- [output folder]   (default: sandbox/screenshots)
+// Usage: dotnet run --project tools/Amberkeep.Screenshots -- [output folder] [--readme]   (default: sandbox/screenshots)
+// --readme also copies the screens used by README.md to docs/images/.
+// The sample data lives in sandbox/; on the screenshots its paths are shown as short example paths (D:\Photos, E:\Backup\…).
 using Amberkeep.App;
 using Amberkeep.App.Services;
 using Amberkeep.App.ViewModels;
@@ -14,9 +16,21 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
-var output = Path.GetFullPath(args.Length > 0 ? args[0] : Path.Combine("sandbox", "screenshots"));
+var readme = args.Contains("--readme");
+var folders = args.Where(a => a != "--readme").ToArray();
+var output = Path.GetFullPath(folders.Length > 0 ? folders[0] : Path.Combine("sandbox", "screenshots"));
 Directory.CreateDirectory(output);
 var data = Path.GetFullPath(Path.Combine("sandbox", "screenshot-data", DateTime.Now.ToString("yyyyMMdd-HHmmss")));
+
+// Sample folders as they appear on the screenshots, longest first.
+var shownPaths = new (string Real, string Shown)[]
+{
+    (Path.Combine(data, "documents"), @"D:\Documents"),
+    (Path.Combine(data, "source"), @"D:\Photos"),
+    (Path.Combine(data, "volA"), "E:"),
+    (Path.Combine(data, "volB"), "F:"),
+    (Path.Combine(data, "app"), @"D:\Tools\Amberkeep"),
+};
 
 AppBuilder.Configure<App>()
     .UseSkia()
@@ -103,6 +117,12 @@ foreach (var (variant, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeV
 
     main.Dialog = new ConfirmDialogViewModel("Licenses", SettingsViewModel.ThirdPartyNotices(), "Close", null, destructive: false) { IsLongText = true };
     Render(main, new SettingsViewModel(main), $"16-licenses-{suffix}");
+
+    var importJobs = sample.Services.Config.Jobs;
+    main.Dialog = new ConfirmDialogViewModel(
+        $"Import {importJobs.Count} backups?", SettingsViewModel.ImportSummary(importJobs), "Import", "Cancel", destructive: false,
+        [new DialogOption("Replace 1 backup that already exists here")]);
+    Render(main, new SettingsViewModel(main), $"18-import-summary-{suffix}");
     main.Dialog = null;
 }
 
@@ -128,8 +148,89 @@ for (var i = 0; i < 5; i++)
 
 iconWindow.CaptureRenderedFrame()?.Save(Path.Combine(output, "15-tray-icons.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
 
+// Social preview for GitHub (Settings → Social preview): 1280 × 640, logo and name next to the list of changes.
+Application.Current!.RequestedThemeVariant = ThemeVariant.Light;
+var socialLogo = Amberkeep.App.Platform.LogoArt.Create();
+socialLogo.Width = 112;
+socialLogo.Height = 112;
+socialLogo.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+var socialText = new Avalonia.Controls.StackPanel { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(64, 0, 32, 0), Spacing = 16 };
+socialText.Children.Add(socialLogo);
+socialText.Children.Add(new Avalonia.Controls.TextBlock { Text = "Amberkeep", FontSize = 68, FontWeight = Avalonia.Media.FontWeight.Bold, Foreground = Avalonia.Media.Brush.Parse("#1C1A17") });
+socialText.Children.Add(new Avalonia.Controls.TextBlock
+{
+    Text = "Folder backups you can see before they happen.", FontSize = 30, LineHeight = 40,
+    TextWrapping = Avalonia.Media.TextWrapping.Wrap, Foreground = Avalonia.Media.Brush.Parse("#5C564D"),
+});
+var socialShot = new Avalonia.Controls.Border
+{
+    CornerRadius = new CornerRadius(14), ClipToBounds = true, Margin = new Thickness(0, 64, 0, 64),
+    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+    BorderBrush = Avalonia.Media.Brush.Parse("#E2DCD2"), BorderThickness = new Thickness(1),
+    Child = new Avalonia.Controls.Image { Source = new Avalonia.Media.Imaging.Bitmap(Path.Combine(output, "04-diff-light.png")), Stretch = Avalonia.Media.Stretch.Uniform },
+};
+var social = new Avalonia.Controls.Grid { ColumnDefinitions = new Avalonia.Controls.ColumnDefinitions("500,*"), Background = Avalonia.Media.Brush.Parse("#EFE9DF") };
+social.Children.Add(socialText);
+Avalonia.Controls.Grid.SetColumn(socialShot, 1);
+social.Children.Add(socialShot);
+var socialWindow = new Avalonia.Controls.Window { Content = social, Width = 1280, Height = 640 };
+socialWindow.Show();
+for (var i = 0; i < 5; i++)
+{
+    Dispatcher.UIThread.RunJobs();
+    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+}
+
+socialWindow.CaptureRenderedFrame()?.Save(Path.Combine(output, "17-social-preview.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+socialWindow.Close();
+
 Console.WriteLine($"Screenshots written to {output}");
+
+if (readme)
+{
+    var images = Path.GetFullPath(Path.Combine("docs", "images"));
+    Directory.CreateDirectory(images);
+    foreach (var screen in new[] { "01-dashboard", "04-diff", "07-run-result", "10-history", "11-archive" })
+    {
+        foreach (var suffix in new[] { "light", "dark" })
+        {
+            File.Copy(Path.Combine(output, $"{screen}-{suffix}.png"), Path.Combine(images, $"{screen[3..]}-{suffix}.png"), overwrite: true);
+        }
+    }
+
+    File.Copy(Path.Combine(output, "17-social-preview.png"), Path.Combine(images, "social-preview.png"), overwrite: true);
+    Console.WriteLine($"README images written to {images}");
+}
+
 return 0;
+
+// Replaces the sandbox paths in every visible text with the short example paths.
+void ShowExamplePaths(Avalonia.Visual root)
+{
+    foreach (var visual in root.GetVisualDescendants())
+    {
+        switch (visual)
+        {
+            case Avalonia.Controls.TextBlock { Text: { } text } block when Shown(text) is { } shown:
+                block.Text = shown;
+                break;
+            case Avalonia.Controls.TextBox { Text: { } text } box when Shown(text) is { } shown:
+                box.Text = shown;
+                break;
+        }
+    }
+
+    string? Shown(string text)
+    {
+        var result = text;
+        foreach (var (real, shown) in shownPaths)
+        {
+            result = result.Replace(real, shown, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return result == text ? null : result;
+    }
+}
 
 void Render(MainViewModel main, object page, string name, int width = 1120, int height = 780, bool scrollToEnd = false)
 {
@@ -147,6 +248,13 @@ void Render(MainViewModel main, object page, string name, int width = 1120, int 
                 viewer.ScrollToEnd();
             }
         }
+    }
+
+    ShowExamplePaths(window);
+    for (var i = 0; i < 2; i++)
+    {
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
     }
 
     var frame = window.CaptureRenderedFrame();
@@ -188,6 +296,10 @@ internal sealed class SilentDialogs : IDialogService
     public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
 
     public void OpenFolder(string path)
+    {
+    }
+
+    public void RevealInFileManager(string path)
     {
     }
 }
