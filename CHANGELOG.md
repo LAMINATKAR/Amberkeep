@@ -2,7 +2,9 @@
 
 All notable changes to Amberkeep. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.0] – 2026-11-17
+
+First public release.
 
 ### Added
 
@@ -76,6 +78,7 @@ First version, for Windows (portable zip, win-x64).
 - Background mode in the tray: runs when a disk is connected or on a schedule, with notifications.
 - One-time run, history with HTML/text reports, export and import of backups, *Clean up everything*.
 
+[1.1.0]: ../../compare/v1.0.2...v1.1.0
 [1.0.2]: ../../compare/v1.0.1...v1.0.2
 [1.0.1]: ../../compare/v1.0.0...v1.0.1
 [1.0.0]: ../../releases/tag/v1.0.0

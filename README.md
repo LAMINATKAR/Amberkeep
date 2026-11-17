@@ -26,6 +26,7 @@
   <a href="#download-and-start">Download</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#building-from-source">Building</a> ·
+  <a href="#contributing">Contributing</a> ·
   <a href="#license">License</a>
 </p>
 
@@ -192,6 +193,10 @@ docs/images/            README images (from the Screenshots and IconGen tools)
 The code is cross-platform (.NET + Avalonia), but only the Windows build is packaged and tested so far. Linux and macOS builds are planned.
 
 What changed in each version: [`CHANGELOG.md`](CHANGELOG.md).
+
+## Contributing
+
+Bug reports and ideas are welcome as [issues](../../issues); see [`CONTRIBUTING.md`](CONTRIBUTING.md). Please report security problems privately, as described in [`SECURITY.md`](SECURITY.md).
 
 ## License
 

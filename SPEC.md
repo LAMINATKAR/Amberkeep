@@ -1,6 +1,6 @@
 # Amberkeep – specification
 
-> Status: version 1.1.0 (2026-11-16). Chapter 8 lists what is done and what comes later.
+> Status: version 1.1.0 (2026-11-17), the first public release. Chapter 8 lists what is done and what comes later.
 
 ## 1. Purpose
 
@@ -443,7 +443,7 @@ Paid Avalonia add-ons (Accelerate, XPF) are not used.
 7. ✅ **Packaging → version 1.0 (Windows):** icon, portable zip for win-x64 (self-contained exe and 3 native DLLs), exe metadata, GPL v3 license and notices in About. Done 2026-11-14 (chapter 7.1).
    - ✅ **Fixes 1.0.1:** changes after the first test (window size, autoscroll, fields, labels, guard OR, weekly and monthly schedule) and fixes from a review of the whole code (path aliases, program folder, Clean up, Unicode forms, name collisions, invalid values, Windows sign-out, Quit, run lock, error log, current job, root target). Done 2026-11-14.
    - ✅ **Fixes 1.0.2:** second review of the whole code: check for a path returning to the source by the backup's rules, shared folders of this computer, links above an item, *Clean up* never locks the program, import and moved target checked against other backups, fixing schedule values, schedule start, the window does not freeze on an unavailable network, the backup screen does not get stuck, *Quit* always exits. Done 2026-11-14.
-8. ✅ **Version 1.1.0:** *Show in source folder* / *Show in target folder* in the diff (chapter 6.1). Repository: English SPEC, README with screenshots and `CHANGELOG.md`. Fixes from a security audit: import shows a summary of each backup before importing, archive browser and restore never go through links, names Windows changes are skipped, a refused write fails only its item, exclusion patterns match in linear time, damaged history records are read safely. Done 2026-11-16.
+8. ✅ **Version 1.1.0 (first public release):** *Show in source folder* / *Show in target folder* in the diff (chapter 6.1), *Continue in background* on the backup page, runs of a deleted backup stay in History (chapter 4.8). Repository: English SPEC, README with screenshots, `CHANGELOG.md`, `SECURITY.md` and `CONTRIBUTING.md`; the history before publishing is condensed into one commit per version, with tags `v1.0.0` to `v1.1.0`. Fixes from a security audit: import shows a summary of each backup before importing, archive browser and restore never go through links, names Windows changes are skipped, a refused write fails only its item, exclusion patterns match in linear time, damaged history records are read safely. Done 2026-11-17.
 
 **After version 1.0 (later phases):**
 
