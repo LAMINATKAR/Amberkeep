@@ -26,6 +26,21 @@ public static class Format
             : string.Create(Culture, $"{value:0.#} {units[unit]}");
     }
 
+    /// <summary>"84.0 MB/s": always one decimal, so the text does not change width with every update.</summary>
+    public static string Speed(double bytesPerSecond)
+    {
+        string[] units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
+        var value = Math.Max(0, bytesPerSecond);
+        var unit = 0;
+        while (value >= 1000 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return string.Create(Culture, $"{value:0.0} {units[unit]}");
+    }
+
     /// <summary>"On connect · Daily 20:00", or null when the job only runs manually.</summary>
     public static string? Trigger(TriggerConfig trigger)
     {

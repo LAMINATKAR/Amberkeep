@@ -24,6 +24,20 @@
       </StackPanel>
     </Grid>
 
+    <!-- A backup the user left (running or finished) -->
+    <Border DockPanel.Dock="Top" Classes="banner" Margin="0,0,0,14"
+            IsVisible="{Binding ActiveRun, Converter={x:Static ObjectConverters.IsNotNull}}"
+            BorderBrush="{x:Static app:Converters.Amber}">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="{Binding ActiveRun.StatusText, FallbackValue={x:Null}}" FontFeatures="+tnum"
+                   TextWrapping="Wrap" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Classes="accent" Content="Show progress" Command="{Binding ShowRunCommand}"
+                IsVisible="{Binding ActiveRun.IsRunning, FallbackValue=False}" />
+        <Button Grid.Column="1" Classes="accent" Content="Show result" Command="{Binding ShowRunCommand}"
+                IsVisible="{Binding ActiveRun.IsFinished, FallbackValue=False}" />
+      </Grid>
+    </Border>
+
     <!-- Waiting reviews and paused automation -->
     <Border DockPanel.Dock="Top" Classes="banner" Margin="0,0,0,14"
             IsVisible="{Binding PendingText, Converter={x:Static ObjectConverters.IsNotNull}}"

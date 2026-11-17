@@ -58,8 +58,7 @@ foreach (var (variant, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeV
     Render(main, new JobEditorViewModel(main, weeklyJob), $"03b-editor-weekly-{suffix}", scrollToEnd: true);
     var monthlyJob = photos0 with { Trigger = photos0.Trigger with { Schedule = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 31, Time = new TimeOnly(20, 0) } } };
     Render(main, new JobEditorViewModel(main, monthlyJob), $"03c-editor-monthly-{suffix}", scrollToEnd: true);
-    Render(main, new DiffViewModel(main, sample.Diff, "Photos → External HDD", false, _ => Task.CompletedTask), $"04-diff-{suffix}");
-    Render(main, new BusyViewModel("Analyzing", "Photos → External HDD") { Status = "Scanning…  12,408 items in the source, 11,950 on the target" }, $"05-busy-{suffix}");
+    Render(main, new DiffViewModel(main, sample.Diff, "Photos → External HDD", false, _ => Task.CompletedTask), $"04-diff-{suffix}");    Render(main, new BusyViewModel("Analyzing", "Photos → External HDD") { Status = "Scanning…  12,408 items in the source, 11,950 on the target" }, $"05-busy-{suffix}");
 
     var running = new RunViewModel(main, "Photos → External HDD", sample.Source, sample.Target, (_, _) => new TaskCompletionSource<RunOutcome>().Task);
     _ = running.StartAsync();
@@ -68,8 +67,15 @@ foreach (var (variant, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeV
     running.OperationText = "Copying";
     running.CurrentPath = "2024/Holiday/IMG_2041.JPG";
     running.CountText = "1,204 of 2,880 changes";
-    running.SpeedText = "84.2 MB/s  ·  about 3 min 20 s left";
+    running.SpeedText = "84.2 MB/s";
+    running.RemainingText = "about 3 min 20 s left";
     Render(main, running, $"06-run-progress-{suffix}");
+
+    // The user went back to the overview while the backup runs.
+    main.Show(running);
+    running.BackCommand.Execute(null);
+    Pump(main.Dashboard.RefreshAsync());
+    Render(main, main.Dashboard, $"06b-dashboard-running-{suffix}");
 
     var finished = new RunViewModel(main, "Photos → External HDD", sample.Source, sample.Target, (_, _) => Task.FromResult(sample.Outcome));
     Pump(finished.StartAsync());
@@ -200,6 +206,21 @@ if (readme)
 
     File.Copy(Path.Combine(output, "17-social-preview.png"), Path.Combine(images, "social-preview.png"), overwrite: true);
     Console.WriteLine($"README images written to {images}");
+}
+
+// The sample data is only needed while rendering; without this, every run would leave ~60 MB in sandbox/.
+try
+{
+    Directory.Delete(data, recursive: true);
+    var parent = Path.GetDirectoryName(data)!;
+    if (!Directory.EnumerateFileSystemEntries(parent).Any())
+    {
+        Directory.Delete(parent);
+    }
+}
+catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+{
+    Console.WriteLine($"Sample data left in {data}: {ex.Message}");
 }
 
 return 0;
@@ -385,6 +406,14 @@ internal sealed record SampleData(AppServices Services, AppServices EmptyService
             SourcePath = source, TargetPath = target, StartedUtc = DateTimeOffset.UtcNow.AddMinutes(-30), FinishedUtc = DateTimeOffset.UtcNow.AddMinutes(-29),
             Outcome = ExecutionOutcome.CompletedWithErrors, CopiedFiles = 3, RemovedFiles = 1, CopiedBytes = 8_400_000,
             Failures = [new ExecutionFailure("2025/Family/birthday.mp4", ExecutionOperation.Copy, "The file is being used by another process.")],
+        }, 100);
+
+        // A run of a backup that has since been deleted (its history was kept).
+        services.History.Add(new Amberkeep.Storage.History.RunRecord
+        {
+            RunId = Guid.NewGuid(), JobId = Guid.NewGuid(), JobName = "Music", TargetId = Guid.NewGuid(), TargetName = "External HDD",
+            SourcePath = source, TargetPath = target, StartedUtc = DateTimeOffset.UtcNow.AddDays(-3), FinishedUtc = DateTimeOffset.UtcNow.AddDays(-3).AddMinutes(4),
+            Outcome = ExecutionOutcome.Completed, CopiedFiles = 120, CopiedBytes = 480_000_000,
         }, 100);
 
         var diff = new DiffEngine().AnalyzeAsync(new DiffRequest(source, target, photos.ToDiffOptions())).GetAwaiter().GetResult();

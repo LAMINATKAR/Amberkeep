@@ -36,10 +36,17 @@
                 <Ellipse Width="10" Height="10" Margin="0,4,12,0" VerticalAlignment="Top"
                          Fill="{Binding OutcomeKind, Converter={x:Static app:Converters.OutcomeBrush}}" />
                 <StackPanel Grid.Column="1" Spacing="2">
-                  <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                  <!-- The chip keeps its place; a long title is trimmed before it. -->
+                  <DockPanel>
+                    <Border DockPanel.Dock="Right" Classes="chip" Margin="8,0,0,0" VerticalAlignment="Center" IsVisible="{Binding IsDeleted}"
+                            ToolTip.Tip="This backup has been deleted. Its runs stay here until the history limit removes them.">
+                      <TextBlock Text="Deleted" />
+                    </Border>
+                    <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                  </DockPanel>
                   <TextBlock Classes="muted small" Text="{Binding Summary}" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
-                <StackPanel Grid.Column="2" Spacing="2" Margin="12,0,0,0">
+                <StackPanel Grid.Column="2" Spacing="2" Margin="12,0,14,0">
                   <TextBlock Classes="small" Text="{Binding When}" HorizontalAlignment="Right" />
                   <TextBlock Classes="muted small" Text="{Binding Duration}" HorizontalAlignment="Right" />
                 </StackPanel>
@@ -54,7 +61,8 @@
         <DockPanel>
           <StackPanel DockPanel.Dock="Top" Spacing="10">
             <Grid ColumnDefinitions="*,Auto">
-              <StackPanel Orientation="Horizontal" Spacing="10">
+              <!-- Centered against the (taller) buttons next to it. -->
+              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                 <Ellipse Width="12" Height="12" VerticalAlignment="Center"
                          Fill="{Binding SelectedRun.OutcomeKind, Converter={x:Static app:Converters.OutcomeBrush}, FallbackValue={x:Null}}" />
                 <TextBlock Classes="h2" Text="{Binding SelectedRun.OutcomeText, FallbackValue=''}" />
@@ -113,7 +121,8 @@
                   <Ellipse Width="8" Height="8" HorizontalAlignment="Left" VerticalAlignment="Center"
                            Fill="{Binding Category, Converter={x:Static app:Converters.CategoryBrush}}" />
                   <TextBlock Grid.Column="1" Classes="path" Text="{Binding Path}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="2" Classes="small" Margin="12,0,4,0" VerticalAlignment="Center"
+                  <!-- Right margin: the scrollbar widens over the row when it is used. -->
+                  <TextBlock Grid.Column="2" Classes="small" Margin="12,0,18,0" VerticalAlignment="Center"
                              Text="{Binding Category, Converter={x:Static app:Converters.CategoryText}}"
                              Foreground="{Binding Category, Converter={x:Static app:Converters.CategoryBrush}}" />
                 </Grid>

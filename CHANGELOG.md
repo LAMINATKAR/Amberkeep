@@ -7,6 +7,17 @@ All notable changes to Amberkeep. Versions follow [Semantic Versioning](https://
 ### Added
 
 - **Show in folder** from the list of changes: right-click a row and choose *Show in source folder* or *Show in target folder* to open the file manager with the item selected. The option is off on the side where the item does not exist; an item gone since the analysis opens its nearest folder. Files are never opened or started from the list.
+- **Continue in background** on the backup page goes back to the overview while the backup keeps running. The overview shows its progress, then its result, with a button to return to it.
+
+### Changed
+
+- Deleting a backup keeps its past runs in History, marked *Deleted*; they go with the history limit like any other run. *Also delete its runs from History* in the delete dialog removes them right away.
+- Speed and time estimate on the backup page no longer jump when the speed changes.
+
+### Fixed
+
+- The scrollbar no longer covers the last column (*New*, *Removed*, sizes) in History and in the list of changes.
+- The result heading in History is aligned with the buttons next to it.
 
 ### Security
 
@@ -56,7 +67,7 @@ Adjustments after the first test, and fixes from a review of the whole code.
 
 ## [1.0.0] – 2026-11-14
 
-First release, for Windows (portable zip, win-x64).
+First version, for Windows (portable zip, win-x64).
 
 - One-way mirror of folders to any number of target disks, recognized by a marker instead of the drive letter.
 - List of changes with checkboxes before a run; approval can be switched off per backup.

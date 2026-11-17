@@ -28,8 +28,16 @@
             <TextBlock Grid.Column="1" Classes="muted" Text="{Binding CountText}" />
           </Grid>
           <TextBlock Classes="path" Text="{Binding CurrentPath}" />
-          <TextBlock Classes="muted small" Text="{Binding SpeedText}" />
-          <Button Content="Stop" Command="{Binding CancelCommand}" HorizontalAlignment="Right" />
+          <!-- Fixed column and tabular digits: the estimate does not move when the speed changes. -->
+          <Grid ColumnDefinitions="96,*">
+            <TextBlock Classes="muted small" FontFeatures="+tnum" Text="{Binding SpeedText}" />
+            <TextBlock Grid.Column="1" Classes="muted small" FontFeatures="+tnum" Text="{Binding RemainingText}" />
+          </Grid>
+          <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Content="Continue in background" Command="{Binding BackCommand}"
+                    ToolTip.Tip="Back to the overview. The backup keeps running and you can return to it from there." />
+            <Button Content="Stop" Command="{Binding CancelCommand}" />
+          </StackPanel>
         </StackPanel>
       </Border>
 

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using Amberkeep.App.Services;
 using Amberkeep.Core.Execution;
 using Amberkeep.Storage.History;
@@ -76,15 +77,19 @@ public sealed partial class RunViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsFinished))]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
+    [NotifyCanExecuteChangedFor(nameof(BackCommand))]
     private bool _isRunning = true;
 
     public bool IsFinished => !IsRunning;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
     private double _percent;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
     private bool _isIndeterminate = true;
 
     [ObservableProperty]
@@ -96,14 +101,31 @@ public sealed partial class RunViewModel : ObservableObject
     [ObservableProperty]
     private string _countText = string.Empty;
 
+    /// <summary>"84.0 MB/s"; shown in its own fixed-width column so that the estimate next to it does not move.</summary>
     [ObservableProperty]
     private string _speedText = string.Empty;
+
+    /// <summary>"about 3 min 20 s left".</summary>
+    [ObservableProperty]
+    private string _remainingText = string.Empty;
 
     [ObservableProperty]
     private RunOutcome? _outcome;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
     private string _outcomeText = string.Empty;
+
+    /// <summary>One line for the dashboard while the user is away from this page.</summary>
+    public string StatusText => IsRunning
+        ? IsIndeterminate ? $"Backing up {Title}…" : string.Create(CultureInfo.InvariantCulture, $"Backing up {Title} – {Percent:0} %")
+        : $"{Title}: {OutcomeText}";
+
+    /// <summary>The run has ended (raised after the result is shown).</summary>
+    public event EventHandler? Finished;
+
+    /// <summary>The user closed the result with Done.</summary>
+    public event EventHandler? Closed;
 
     [ObservableProperty]
     private BannerKind _outcomeKind;
@@ -159,9 +181,15 @@ public sealed partial class RunViewModel : ObservableObject
         }
     }
 
+    /// <summary>Goes to the dashboard while the backup keeps running; the dashboard leads back here.</summary>
+    [RelayCommand(CanExecute = nameof(IsRunning))]
+    private void Back() => _shell.ShowDashboard();
+
     [RelayCommand]
     private void Done()
     {
+        // First, so that a next run started by onDone (Run all) is not forgotten with this one.
+        Closed?.Invoke(this, EventArgs.Empty);
         if (_onDone is not null)
         {
             _onDone();
@@ -263,8 +291,9 @@ public sealed partial class RunViewModel : ObservableObject
         }
 
         var bytesPerSecond = (p.CopiedBytes - oldBytes) / seconds;
-        var remaining = TimeSpan.FromSeconds((p.TotalBytes - p.CopiedBytes) / bytesPerSecond);
-        SpeedText = $"{Format.Bytes((long)bytesPerSecond)}/s  ·  about {Format.Duration(remaining)} left";
+        var remaining = TimeSpan.FromSeconds(Math.Max(0, p.TotalBytes - p.CopiedBytes) / bytesPerSecond);
+        SpeedText = Format.Speed(bytesPerSecond);
+        RemainingText = remaining.TotalSeconds < 1 ? "almost done" : $"about {Format.Duration(remaining)} left";
     }
 
     private void ShowOutcome(RunOutcome o)
@@ -297,5 +326,6 @@ public sealed partial class RunViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(HasArchive));
+        Finished?.Invoke(this, EventArgs.Empty);
     }
 }

@@ -70,9 +70,9 @@ public sealed class CleanupService(
         return (updated, report);
     }
 
-    /// <summary>Removes a job and saves the configuration; then its history and (optionally) target files are cleaned.</summary>
+    /// <summary>Removes a job and saves the configuration; then (optionally) its history and target files are cleaned.</summary>
     public (AppConfig Config, CleanupReport Report) DeleteJob(
-        AppConfig config, Guid jobId, bool cleanTargets, bool removeArchives)
+        AppConfig config, Guid jobId, bool cleanTargets, bool removeArchives, bool deleteHistory)
     {
         ArgumentNullException.ThrowIfNull(config);
         var job = config.FindJob(jobId) ?? throw new InvalidOperationException("The backup does not exist.");
@@ -80,20 +80,26 @@ public sealed class CleanupService(
         // Saved first: if saving fails, nothing has been removed yet.
         var updated = config.WithoutJob(jobId);
         store.Save(updated);
-        return (updated, CleanUpRemovedJob(job, cleanTargets, removeArchives));
+        return (updated, CleanUpRemovedJob(job, cleanTargets, removeArchives, deleteHistory));
     }
 
     /// <summary>
-    /// Removes the history and (optionally) the markers and archives of a job that is no longer in the saved
-    /// configuration. Callers save the configuration first.
+    /// Removes (optionally) the markers, archives and history of a job that is no longer in the saved
+    /// configuration. Callers save the configuration first. A kept history stays visible in History
+    /// and goes with the history limit like any other run.
     /// </summary>
-    public CleanupReport CleanUpRemovedJob(JobConfig job, bool cleanTargets, bool removeArchives)
+    public CleanupReport CleanUpRemovedJob(JobConfig job, bool cleanTargets, bool removeArchives, bool deleteHistory)
     {
         ArgumentNullException.ThrowIfNull(job);
         var report = new CleanupReport();
         foreach (var target in job.Targets)
         {
             CleanTarget(job, target, cleanTargets, cleanTargets && removeArchives, report);
+        }
+
+        if (!deleteHistory)
+        {
+            return report;
         }
 
         try

@@ -83,7 +83,15 @@ public sealed partial class MainViewModel : ObservableObject, IShell
             onStarted: () => Services.PendingReviews.Remove(review.Target.Id));
     }
 
-    public void Show(object page) => CurrentPage = page;
+    public void Show(object page)
+    {
+        if (page is RunViewModel run)
+        {
+            Dashboard.Track(run);
+        }
+
+        CurrentPage = page;
+    }
 
     public void ShowDashboard()
     {

@@ -191,7 +191,7 @@ public sealed class ReliabilityFixTests : IDisposable
     public async Task Job_is_not_deleted_while_a_backup_runs()
     {
         var (job, _) = _app.SavedJob();
-        _app.Dialogs.OptionAnswers.Enqueue([true, true]);
+        _app.Dialogs.OptionAnswers.Enqueue([true, true, true]);
         Assert.True(_app.Services.Gate.TryEnter());
 
         await _app.Shell.Dashboard.DeleteJobAsync(job);
@@ -205,12 +205,49 @@ public sealed class ReliabilityFixTests : IDisposable
     public async Task Deleting_a_job_saves_first_and_then_removes_its_marker()
     {
         var (job, target) = _app.SavedJob();
-        _app.Dialogs.OptionAnswers.Enqueue([true, false]);
+        _app.Dialogs.OptionAnswers.Enqueue([true, false, false]);
 
         await _app.Shell.Dashboard.DeleteJobAsync(job);
 
         Assert.Null(_app.Services.Config.FindJob(job.Id));
         Assert.Null(new Amberkeep.Storage.AppStore(_app.AppDirectory).Load().Config!.FindJob(job.Id));
         Assert.False(File.Exists(Path.Combine(target.LastKnownPath, ".amberkeep", "target.json")));
+    }
+
+    [Fact]
+    public async Task Deleted_job_keeps_its_runs_in_history_marked_as_deleted()
+    {
+        var (job, _) = _app.SavedJob(requireApproval: false);
+        var (other, _) = _app.SavedJob(requireApproval: false, name: "Other");
+        _app.Source.File("a.txt", "a");
+        await _app.Shell.Dashboard.RefreshAsync();
+        await _app.Shell.Dashboard.Jobs.Single(c => c.Job.Id == job.Id).Targets[0].RunCommand.ExecuteAsync(null);
+        (await _app.WaitForPageAsync<RunViewModel>(r => r.IsFinished)).DoneCommand.Execute(null);
+        _app.Dialogs.OptionAnswers.Enqueue([true, false, false]);
+
+        await _app.Shell.Dashboard.DeleteJobAsync(job);
+
+        var history = new HistoryViewModel(_app.Shell);
+        await history.LoadAsync();
+        var row = Assert.Single(history.Runs);
+        Assert.Equal(job.Id, row.Record.JobId);
+        Assert.True(row.IsDeleted);
+        Assert.Contains(history.Filters, f => f.JobId == job.Id && f.Label.EndsWith("(deleted)", StringComparison.Ordinal));
+        Assert.Contains(history.Filters, f => f.JobId == other.Id);
+    }
+
+    [Fact]
+    public async Task Deleted_job_can_take_its_runs_with_it()
+    {
+        var (job, _) = _app.SavedJob(requireApproval: false);
+        _app.Source.File("a.txt", "a");
+        await _app.Shell.Dashboard.RefreshAsync();
+        await _app.Shell.Dashboard.Jobs[0].Targets[0].RunCommand.ExecuteAsync(null);
+        (await _app.WaitForPageAsync<RunViewModel>(r => r.IsFinished)).DoneCommand.Execute(null);
+        _app.Dialogs.OptionAnswers.Enqueue([true, false, true]);
+
+        await _app.Shell.Dashboard.DeleteJobAsync(job);
+
+        Assert.Empty(_app.Services.History.List());
     }
 }

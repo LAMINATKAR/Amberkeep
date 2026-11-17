@@ -38,17 +38,30 @@ public sealed class CleanupTests : IDisposable
     }
 
     [Fact]
-    public void Deleting_a_job_removes_its_history()
+    public void Deleting_a_job_removes_its_history_when_asked()
     {
         var (job, target) = Backup(withArchive: false);
         var other = _fx.NewJob("Other");
         var config = new AppConfig().WithJob(job).WithJob(other);
 
-        var (updated, _) = _fx.Cleanup.DeleteJob(config, job.Id, cleanTargets: false, removeArchives: false);
+        var (updated, _) = _fx.Cleanup.DeleteJob(config, job.Id, cleanTargets: false, removeArchives: false, deleteHistory: true);
 
         Assert.Equal([other.Id], updated.Jobs.Select(j => j.Id));
         Assert.Empty(_fx.History.List());
         Assert.Equal(TargetState.Connected, _fx.Locator.Locate(target).State);
+    }
+
+    [Fact]
+    public void Deleting_a_job_keeps_its_history_by_default()
+    {
+        var (job, _) = Backup(withArchive: false);
+        var config = new AppConfig().WithJob(job);
+
+        var (updated, report) = _fx.Cleanup.DeleteJob(config, job.Id, cleanTargets: true, removeArchives: true, deleteHistory: false);
+
+        Assert.Empty(updated.Jobs);
+        Assert.Equal(job.Id, Assert.Single(_fx.History.List()).JobId);
+        Assert.DoesNotContain(report.Removed, r => r.Contains("history", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

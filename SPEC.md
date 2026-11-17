@@ -219,7 +219,7 @@ The backed-up data itself is **never deleted** during cleanup. Only files create
 | Action | What it removes |
 |---|---|
 | **Remove target** (on a target) | removes the target from the configuration. Optionally deletes `.amberkeep` on the target (the marker; the archive only after a separate confirmation) and the Two-way snapshot for this target. |
-| **Delete job** | removes the job from the configuration, together with its history and snapshots. Optionally also cleans up all its connected targets (as above). |
+| **Delete job** | removes the job from the configuration, together with its snapshots. Its history stays (shown as deleted in History, removed by the history limit) unless *Also delete its runs from History* is ticked (change after testing 1.1.0). Optionally also cleans up all its connected targets (as above). |
 | **Clean up everything** (in Settings) | removes the autostart entry, optionally `.amberkeep` on all connected targets, and all files Amberkeep wrote next to the exe (`amberkeep.json` with its `.bad-*` and `.tmp` variants, `amberkeep-error.log`, records in `history/`). Foreign files stay, e.g. the user's own copy `amberkeep.json.mine` or another file in `history/`; the `history/` folder is deleted only if it is left empty, and `state/` is not used in 1.0, so it is not touched. Program files (exe, DLL, licenses) stay. After that it is enough to delete the program folder, and nothing of the program is left. |
 
 For targets that are not currently connected, the program warns that `.amberkeep` remained there. It can be removed later after connecting, or manually.
@@ -308,7 +308,7 @@ state/                     ← state snapshots for Two-way, one file per source�
    - comparison by size and time or by content (byte by byte), archive and its cleanup, conflict resolution (Two-way),
    - approval, removal guard threshold, triggers.
 3. **Diff view:** a tree with colored categories, ticking (a folder ticks or unticks all its contents), filters by category, search and totals (counts, sizes, required space). For Two-way the direction is shown too (→ / ←). Buttons *Approve & run* / *Cancel*.
-4. **Progress:** overall and current file, speed, time estimate, *Cancel*.
+4. **Progress:** overall and current file, speed, time estimate, *Cancel*, *Continue in background*.
 5. **History:** list of runs with result and detail (log, errors) and report export.
 6. **Archive browser:** snapshots by date, restoring selected files.
 7. **Settings:** start with the system, pausing automatic runs, behavior when closing the window (to tray / quit), notifications, history length, **Clean up everything**.
@@ -343,6 +343,10 @@ state/                     ← state snapshots for Two-way, one file per source�
   - otherwise the run proceeds directly,
   - if there are no changes, "Up to date" is shown.
 - **Run all:** goes through all connected targets one by one. It continues with the next target when the result or the diff is closed.
+- **Progress page** (change after testing 1.1.0):
+  - speed and time estimate are separate fixed-width columns with tabular digits, and the speed always has one decimal, so the estimate does not jump when the speed changes,
+  - *Continue in background* returns to the dashboard while the backup keeps running. The dashboard then shows a bar with the backup's progress and *Show progress*; after it finishes, its result and *Show result*. The bar disappears when the result is closed with *Done* (only then does *Run all* continue). Opening another backup page replaces it.
+- **Lists with a scrollbar** keep a right margin, so the last column (e.g. *New*, *Removed*, sizes) is not covered by the scrollbar when it widens on use.
 - **The job editor** writes the markers of new targets and cleans up removed targets only on **Save**. On **Cancel** nothing is left on the disks.
 - **Locate…** is on the dashboard next to a target that is not connected or not verified.
 - **One-time run** always shows the diff. When it finishes, a text report can be saved (*Save report…*).
@@ -351,7 +355,7 @@ state/                     ← state snapshots for Two-way, one file per source�
 ### 6.2 Implementation decisions (phase 5)
 
 - **History:**
-  - list of runs with a filter by backup,
+  - list of runs with a filter by backup; runs of a deleted backup are marked *Deleted* and have their own filter entry "Name (deleted)",
   - detail with statistics, errors, notes and the list of changes, which is loaded only when opened,
   - **Export report…** saves HTML or TXT according to the chosen extension; the HTML is a single file without external resources.
 - **The archive** is opened with the *Archive* button on a connected target that has an archive.
@@ -439,7 +443,7 @@ Paid Avalonia add-ons (Accelerate, XPF) are not used.
 7. ✅ **Packaging → version 1.0 (Windows):** icon, portable zip for win-x64 (self-contained exe and 3 native DLLs), exe metadata, GPL v3 license and notices in About. Done 2026-11-14 (chapter 7.1).
    - ✅ **Fixes 1.0.1:** changes after the first test (window size, autoscroll, fields, labels, guard OR, weekly and monthly schedule) and fixes from a review of the whole code (path aliases, program folder, Clean up, Unicode forms, name collisions, invalid values, Windows sign-out, Quit, run lock, error log, current job, root target). Done 2026-11-14.
    - ✅ **Fixes 1.0.2:** second review of the whole code: check for a path returning to the source by the backup's rules, shared folders of this computer, links above an item, *Clean up* never locks the program, import and moved target checked against other backups, fixing schedule values, schedule start, the window does not freeze on an unavailable network, the backup screen does not get stuck, *Quit* always exits. Done 2026-11-14.
-8. ✅ **Version 1.1.0:** *Show in source folder* / *Show in target folder* in the diff (chapter 6.1). Repository: English SPEC, README with screenshots, `CHANGELOG.md`, GitHub Actions build (`.github/workflows/build.yml`). Fixes from a security audit: import shows a summary of each backup before importing, archive browser and restore never go through links, names Windows changes are skipped, a refused write fails only its item, exclusion patterns match in linear time, damaged history records are read safely. Done 2026-11-16.
+8. ✅ **Version 1.1.0:** *Show in source folder* / *Show in target folder* in the diff (chapter 6.1). Repository: English SPEC, README with screenshots and `CHANGELOG.md`. Fixes from a security audit: import shows a summary of each backup before importing, archive browser and restore never go through links, names Windows changes are skipped, a refused write fails only its item, exclusion patterns match in linear time, damaged history records are read safely. Done 2026-11-16.
 
 **After version 1.0 (later phases):**
 

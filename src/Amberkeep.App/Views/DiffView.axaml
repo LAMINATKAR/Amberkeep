@@ -120,8 +120,9 @@
                 </StackPanel>
                 <TextBlock Grid.Column="4" Classes="small" Text="{Binding CategoryText}" Margin="12,0" VerticalAlignment="Center"
                            Foreground="{Binding Category, Converter={x:Static app:Converters.CategoryBrush}}" />
+                <!-- Right margin: the scrollbar widens over the row when it is used. -->
                 <TextBlock Grid.Column="5" Classes="muted small" Text="{Binding SizeText}" MinWidth="70"
-                           TextAlignment="Right" VerticalAlignment="Center" />
+                           TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,18,0" />
               </Grid>
             </DataTemplate>
           </ListBox.ItemTemplate>

@@ -77,7 +77,7 @@ public sealed class FlowTests : IDisposable
     {
         var (job, target) = _app.SavedJob();
         await _app.Shell.Dashboard.RefreshAsync();
-        _app.Dialogs.OptionAnswers.Enqueue([true, false]);
+        _app.Dialogs.OptionAnswers.Enqueue([true, false, false]);
 
         await _app.Shell.Dashboard.Jobs[0].DeleteCommand.ExecuteAsync(null);
 
@@ -219,6 +219,57 @@ public sealed class FlowTests : IDisposable
 
         Assert.Equal(ExecutionOutcome.Cancelled, run.Outcome!.Outcome);
         Assert.True(run.IsFinished);
+    }
+
+    [Fact]
+    public async Task Run_page_can_be_left_while_the_backup_keeps_running()
+    {
+        var gate = new TaskCompletionSource<RunOutcome>();
+        var doneCalls = 0;
+        var run = new RunViewModel(_app.Shell, "Photos → Disk", "s", "t", (_, _) => gate.Task, onDone: () => doneCalls++);
+        _app.Shell.Show(run);
+        var running = run.StartAsync();
+
+        run.BackCommand.Execute(null);
+
+        var dashboard = _app.Shell.Dashboard;
+        Assert.Same(dashboard, _app.Shell.CurrentPage);
+        Assert.Same(run, dashboard.ActiveRun);
+        Assert.False(running.IsCompleted);
+        Assert.StartsWith("Backing up Photos → Disk", run.StatusText, StringComparison.Ordinal);
+
+        dashboard.ShowRunCommand.Execute(null);
+        Assert.Same(run, _app.Shell.CurrentPage);
+
+        // It finishes while the user is on the dashboard: the result stays reachable from there.
+        run.BackCommand.Execute(null);
+        gate.SetResult(new RunOutcome(ExecutionOutcome.Completed, null, 1, 0, 0, 0, 0, 0, 0, 0, 1, [], [], null, TimeSpan.FromSeconds(1)));
+        await running;
+        Assert.False(run.BackCommand.CanExecute(null));
+        Assert.Same(run, dashboard.ActiveRun);
+        Assert.Equal("Photos → Disk: Completed", run.StatusText);
+
+        dashboard.ShowRunCommand.Execute(null);
+        run.DoneCommand.Execute(null);
+
+        Assert.Null(dashboard.ActiveRun);
+        Assert.Equal(1, doneCalls);
+    }
+
+    [Fact]
+    public void A_new_run_page_replaces_the_one_the_user_left()
+    {
+        var first = new RunViewModel(_app.Shell, "first", "s", "t", (_, _) => new TaskCompletionSource<RunOutcome>().Task);
+        var second = new RunViewModel(_app.Shell, "second", "s", "t", (_, _) => new TaskCompletionSource<RunOutcome>().Task);
+        _app.Shell.Show(first);
+        _ = first.StartAsync();
+        first.BackCommand.Execute(null);
+
+        _app.Shell.Show(second);
+        _ = second.StartAsync();
+        first.DoneCommand.Execute(null);
+
+        Assert.Same(second, _app.Shell.Dashboard.ActiveRun);
     }
 
     [Fact]

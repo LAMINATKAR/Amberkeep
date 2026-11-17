@@ -9,11 +9,14 @@ namespace Amberkeep.App.ViewModels;
 
 public sealed record JobFilter(Guid? JobId, string Label);
 
-public sealed class HistoryRowViewModel(RunRecord record, DateTimeOffset now)
+public sealed class HistoryRowViewModel(RunRecord record, DateTimeOffset now, bool isDeleted = false)
 {
     private readonly RunOutcome _outcome = RunOutcome.From(record);
 
     public RunRecord Record { get; } = record;
+
+    /// <summary>The backup of this run has been deleted (its runs are kept unless the user deleted them too).</summary>
+    public bool IsDeleted { get; } = isDeleted;
 
     public string When { get; } = Format.When(record.StartedUtc, now);
 
@@ -137,10 +140,11 @@ public sealed partial class HistoryViewModel : ObservableObject
     private void ApplyFilter()
     {
         var now = _shell.Services.Time.GetUtcNow();
+        var config = _shell.Services.Config;
         Runs.Clear();
         foreach (var record in _records.Where(r => SelectedFilter.JobId is null || r.JobId == SelectedFilter.JobId))
         {
-            Runs.Add(new HistoryRowViewModel(record, now));
+            Runs.Add(new HistoryRowViewModel(record, now, config.FindJob(record.JobId) is null));
         }
 
         IsEmpty = Runs.Count == 0;

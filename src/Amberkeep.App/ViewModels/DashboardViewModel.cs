@@ -34,6 +34,49 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     private bool _isPaused;
 
+    /// <summary>
+    /// The backup page last opened, until its result is closed with Done. The user may leave it while it runs;
+    /// the dashboard then shows its progress (or its result) with a way back.
+    /// </summary>
+    [ObservableProperty]
+    private RunViewModel? _activeRun;
+
+    /// <summary>Called whenever a backup page is shown.</summary>
+    internal void Track(RunViewModel run)
+    {
+        if (ReferenceEquals(ActiveRun, run))
+        {
+            return;
+        }
+
+        ActiveRun = run;
+        run.Finished += (_, _) =>
+        {
+            // The user waits on the dashboard: "Last backup" changes.
+            if (ReferenceEquals(ActiveRun, run) && shell is MainViewModel { CurrentPage: DashboardViewModel })
+            {
+                _ = RefreshAsync();
+            }
+        };
+        run.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(ActiveRun, run))
+            {
+                ActiveRun = null;
+            }
+        };
+    }
+
+    /// <summary>Goes back to the backup page (its progress, or its result).</summary>
+    [RelayCommand]
+    private void ShowRun()
+    {
+        if (ActiveRun is { } run)
+        {
+            shell.Show(run);
+        }
+    }
+
     /// <summary>Opens the oldest backup waiting for review.</summary>
     [RelayCommand]
     private void Review()
@@ -213,10 +256,11 @@ public sealed partial class DashboardViewModel : ObservableObject
     {
         var answers = await shell.Dialogs.ConfirmWithOptionsAsync(
             $"Delete '{job.Name}'?",
-            "The backup is removed from Amberkeep together with its history. Backed-up files stay where they are.",
+            "The backup is removed from Amberkeep. Backed-up files stay where they are, and its past runs stay in History.",
             "Delete",
             [new DialogOption("Also remove Amberkeep files (marker) from connected targets", true),
-             new DialogOption("Also delete archived old versions on connected targets")],
+             new DialogOption("Also delete archived old versions on connected targets"),
+             new DialogOption("Also delete its runs from History")],
             destructive: true);
         if (answers is null)
         {
@@ -242,7 +286,7 @@ public sealed partial class DashboardViewModel : ObservableObject
 
             // Saved first (under the save lock): if that fails, nothing has been removed yet.
             shell.Services.Update(config => config.WithoutJob(saved.Id));
-            report = await Task.Run(() => shell.Services.Cleanup.CleanUpRemovedJob(saved, answers[0], answers[0] && answers[1]));
+            report = await Task.Run(() => shell.Services.Cleanup.CleanUpRemovedJob(saved, answers[0], answers[0] && answers[1], answers[2]));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
