@@ -120,7 +120,7 @@
                 <Grid ColumnDefinitions="16,*,Auto">
                   <Ellipse Width="8" Height="8" HorizontalAlignment="Left" VerticalAlignment="Center"
                            Fill="{Binding Category, Converter={x:Static app:Converters.CategoryBrush}}" />
-                  <TextBlock Grid.Column="1" Classes="path" Text="{Binding Path}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Classes="path" Text="{Binding Converter={x:Static app:Converters.ChangePath}}" VerticalAlignment="Center" />
                   <!-- Right margin: the scrollbar widens over the row when it is used. -->
                   <TextBlock Grid.Column="2" Classes="small" Margin="12,0,18,0" VerticalAlignment="Center"
                              Text="{Binding Category, Converter={x:Static app:Converters.CategoryText}}"

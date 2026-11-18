@@ -31,4 +31,7 @@ public interface IDialogService
     /// opens its nearest existing parent folder instead.
     /// </summary>
     void RevealInFileManager(string path);
+
+    /// <summary>Opens a file in its default application, with the user's own rights.</summary>
+    void OpenFile(string path);
 }

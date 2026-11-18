@@ -53,6 +53,7 @@ public static class RunStats
             _ => $"{Format.Count(o.RemovedFiles, "file", "files")}, {Format.Count(o.RemovedDirectories, "folder", "folders")}",
         });
         Add("New folders", o.CreatedDirectories > 0 ? o.CreatedDirectories.ToString("N0", CultureInfo.InvariantCulture) : null);
+        Add("Moved", o.MovedFiles > 0 ? Format.Count(o.MovedFiles, "file", "files") : null);
         Add("Renamed", o.RenamedEntries > 0 ? o.RenamedEntries.ToString("N0", CultureInfo.InvariantCulture) : null);
         Add("Times updated", o.UpdatedTimestamps > 0 ? o.UpdatedTimestamps.ToString("N0", CultureInfo.InvariantCulture) : null);
         Add("Archived", o.ArchivedFiles > 0 ? Format.Count(o.ArchivedFiles, "file", "files") : null);
@@ -146,7 +147,7 @@ public static class ReportBuilder
         {
             AppendList(
                 r.ChangesTruncated ? $"Changes (first {r.Changes.Count:N0})" : "Changes",
-                r.Changes.Select(c => $"{Format.Category(c.Category),-13} {c.Path}"));
+                r.Changes.Select(c => $"{Format.Category(c.Category),-13} {Format.ChangePath(c)}"));
         }
 
         return text.ToString();
@@ -209,7 +210,7 @@ public static class ReportBuilder
             html.Append("<table><tr><th>Change</th><th>Path</th></tr>");
             foreach (var change in r.Changes)
             {
-                html.Append("<tr><td>").Append(E(Format.Category(change.Category))).Append("</td><td class=\"path\">").Append(E(change.Path)).Append("</td></tr>");
+                html.Append("<tr><td>").Append(E(Format.Category(change.Category))).Append("</td><td class=\"path\">").Append(E(Format.ChangePath(change))).Append("</td></tr>");
             }
 
             html.Append("</table>");

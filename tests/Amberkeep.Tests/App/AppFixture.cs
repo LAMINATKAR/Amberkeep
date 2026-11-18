@@ -60,6 +60,11 @@ internal sealed class FakeDialogs : IDialogService
     public List<string> Revealed { get; } = [];
 
     public void RevealInFileManager(string path) => Revealed.Add(path);
+
+    /// <summary>Files opened in their default application, in order.</summary>
+    public List<string> Opened { get; } = [];
+
+    public void OpenFile(string path) => Opened.Add(path);
 }
 
 /// <summary>App services over temp folders, with two fake volumes, and a shell with scripted dialogs.</summary>

@@ -82,6 +82,18 @@ public static class Format
         _ => string.Create(Culture, $"{(int)duration.TotalHours} h {duration.Minutes} min"),
     };
 
+    /// <summary>"Only: Photos/2026, Documents +2 more" for a backup of selected folders and files; null for the whole folder.</summary>
+    public static string? Selection(IReadOnlyList<string> includedPaths, int shown = 3) => includedPaths.Count switch
+    {
+        0 => null,
+        _ when includedPaths.Count <= shown => "Only: " + string.Join(", ", includedPaths),
+        _ => $"Only: {string.Join(", ", includedPaths.Take(shown))} +{includedPaths.Count - shown:N0} more",
+    };
+
+    /// <summary>The path of a recorded change; a moved file also shows where it was.</summary>
+    public static string ChangePath(Amberkeep.Storage.History.RecordedChange change) =>
+        change.From is { } from ? $"{change.Path}  (from {from})" : change.Path;
+
     public static string Category(DiffCategory category) => category switch
     {
         DiffCategory.New => "New",
@@ -89,6 +101,7 @@ public static class Format
         DiffCategory.TargetNewer => "Target newer",
         DiffCategory.TimestampOnly => "Timestamp",
         DiffCategory.CaseRename => "Renamed",
+        DiffCategory.Moved => "Moved",
         DiffCategory.Removed => "Removed",
         DiffCategory.Error => "Error",
         _ => category.ToString(),

@@ -31,6 +31,12 @@ public sealed record DiffOptions
     /// <summary>Exclusion patterns (see <see cref="Exclusions.ExclusionMatcher"/>). Apply to source and target alike.</summary>
     public IReadOnlyList<string> Exclusions { get; init; } = [];
 
+    /// <summary>
+    /// Back up only these folders and files of the source (relative paths, see <see cref="Exclusions.IncludeFilter"/>);
+    /// empty = everything. Applies to source and target alike: nothing outside the selection is changed on the target.
+    /// </summary>
+    public IReadOnlyList<string> IncludedPaths { get; init; } = [];
+
     public CaseSensitivity CaseSensitivity { get; init; } = CaseSensitivity.Auto;
 
     public MassRemovalGuard MassRemovalGuard { get; init; } = new();

@@ -23,6 +23,7 @@ public enum SafetyIssueKind
     TargetMissing,
     MassRemoval,
     ProgramFolder,
+    InvalidSelection,
 }
 
 public sealed record SafetyIssue(SafetyIssueKind Kind, SafetySeverity Severity, string Message);

@@ -30,6 +30,7 @@ public enum ExecutionOperation
     Prepare,
     Remove,
     Rename,
+    Move,
     CreateDirectory,
     Copy,
     UpdateTimestamp,
@@ -63,6 +64,9 @@ public sealed class ExecutionResult
     public int CreatedDirectories { get; init; }
 
     public int RenamedEntries { get; init; }
+
+    /// <summary>Files moved to their new place on the target instead of being copied again.</summary>
+    public int MovedFiles { get; init; }
 
     public int UpdatedTimestamps { get; init; }
 

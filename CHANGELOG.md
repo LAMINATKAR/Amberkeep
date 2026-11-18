@@ -2,6 +2,18 @@
 
 All notable changes to Amberkeep. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] – 2026-11-18
+
+Changes after testing 1.1.0.
+
+### Added
+
+- **Moved and renamed files are recognized.** A renamed folder, a file moved to another folder or a renamed file shows as *Moved* in the list of changes, and the backup moves it on the target instead of copying it again and deleting the old copy. A pair is used only when it is unambiguous (same size and time, and the same name – or the same content, checked byte by byte, for a renamed file). Moves do not count as removals for the mass-removal guard.
+- **Back up only selected folders and files** of a source folder: in the backup editor, choose *Only selected folders and files* and tick them in a tree of the source. A ticked folder includes everything added to it later. Nothing outside the selection is copied or removed on the target. A selected folder that is missing in the source is reported, and its backup is left alone.
+- **Open a file** from the list of changes: double-click a row, or right-click and choose *Open source file* / *Open target file*. A program or script is opened only after confirmation.
+- **Select all** and **Select none** in the list of changes; they act on the changes the filters and the search show.
+- **Change the order of backups** on the overview by dragging a card by its grip. *Run all*, the tray menu and History follow the order.
+
 ## [1.1.0] – 2026-11-17
 
 First public release.

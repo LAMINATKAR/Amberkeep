@@ -1,9 +1,12 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
+using Avalonia.VisualTree;
 
 namespace Amberkeep.App.Views;
 
-// Views have no logic of their own; everything lives in the view models.
+// Views have no logic of their own; everything lives in the view models. Code here only passes input
+// (double-click, dragging) on to them.
 
 public sealed partial class MainWindow : Window
 {
@@ -55,7 +58,11 @@ public sealed class LogoView : UserControl
 
 public sealed partial class DashboardView : UserControl
 {
-    public DashboardView() => AvaloniaXamlLoader.Load(this);
+    public DashboardView()
+    {
+        AvaloniaXamlLoader.Load(this);
+        CardReorder.Attach(this.FindControl<ItemsControl>("JobList")!);
+    }
 }
 
 public sealed partial class JobEditorView : UserControl
@@ -65,7 +72,28 @@ public sealed partial class JobEditorView : UserControl
 
 public sealed partial class DiffView : UserControl
 {
-    public DiffView() => AvaloniaXamlLoader.Load(this);
+    public DiffView()
+    {
+        AvaloniaXamlLoader.Load(this);
+
+        // Double-clicking a row opens the file or expands the folder; a double-click on its checkbox or chevron only toggles them.
+        this.FindControl<ListBox>("Tree")!.DoubleTapped += (_, e) =>
+        {
+            if (e.Source is not Visual source
+                || source.GetSelfAndVisualAncestors().OfType<Avalonia.Controls.Primitives.ToggleButton>().Any()
+                || source.GetSelfAndVisualAncestors().OfType<Button>().Any())
+            {
+                return;
+            }
+
+            if (source.GetSelfAndVisualAncestors().OfType<Control>().FirstOrDefault(c => c.DataContext is ViewModels.DiffNodeViewModel)
+                    ?.DataContext is ViewModels.DiffNodeViewModel node)
+            {
+                node.ActivateCommand.Execute(null);
+                e.Handled = true;
+            }
+        };
+    }
 }
 
 public sealed partial class RunView : UserControl

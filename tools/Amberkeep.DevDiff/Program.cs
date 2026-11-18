@@ -110,6 +110,7 @@ static async Task<int> DiffAsync(string source, string target, string[] rest, bo
         var extra = item.Category switch
         {
             DiffCategory.CaseRename => $"  (target: {item.Target!.RelativePath})",
+            DiffCategory.Moved => $"  (moved from {item.Target!.RelativePath})",
             DiffCategory.Error => $"  ({item.Message})",
             _ when item.Source is not null && item.Target is not null
                 && item.Source.RelativePath != item.Target.RelativePath => $"  (renamed from {item.Target.RelativePath})",
@@ -130,7 +131,7 @@ static async Task<int> DiffAsync(string source, string target, string[] rest, bo
     }
 
     Console.WriteLine($"  {"Unchanged",-13} {s.UnchangedFiles,6} files");
-    Console.WriteLine($"  To copy: {FormatBytes(s.BytesToCopy)}, to replace: {FormatBytes(s.BytesToReplace)}, to remove: {FormatBytes(s.BytesToRemove)}");
+    Console.WriteLine($"  To copy: {FormatBytes(s.BytesToCopy)}, to replace: {FormatBytes(s.BytesToReplace)}, to remove: {FormatBytes(s.BytesToRemove)}, moved: {FormatBytes(s.BytesToMove)}");
     Console.WriteLine($"  Free space needed: {FormatBytes(s.RequiredFreeSpace(archiveEnabled: false))} (with archive: {FormatBytes(s.RequiredFreeSpace(archiveEnabled: true))})");
     Console.WriteLine();
     Console.WriteLine(result.IsBlocked ? "Result: BLOCKED" : result.RequiresApproval ? "Result: requires approval" : "Result: OK");
@@ -168,7 +169,7 @@ static async Task<int> DiffAsync(string source, string target, string[] rest, bo
     }
 
     Console.WriteLine($"  Copied {outcome.CopiedFiles}, replaced {outcome.ReplacedFiles}, removed {outcome.RemovedFiles} files and {outcome.RemovedDirectories} folders, " +
-        $"created {outcome.CreatedDirectories} folders, renamed {outcome.RenamedEntries}, timestamps {outcome.UpdatedTimestamps}, archived {outcome.ArchivedFiles}, {FormatBytes(outcome.CopiedBytes)} written");
+        $"created {outcome.CreatedDirectories} folders, moved {outcome.MovedFiles}, renamed {outcome.RenamedEntries}, timestamps {outcome.UpdatedTimestamps}, archived {outcome.ArchivedFiles}, {FormatBytes(outcome.CopiedBytes)} written");
     if (outcome.ArchiveFolder is not null)
     {
         Console.WriteLine($"  Archive: {outcome.ArchiveFolder}");

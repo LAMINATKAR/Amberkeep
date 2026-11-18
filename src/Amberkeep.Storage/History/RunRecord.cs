@@ -6,7 +6,8 @@ namespace Amberkeep.Storage.History;
 
 public sealed record CategoryCount(DiffCategory Category, int Files, int Directories, long Bytes);
 
-public sealed record RecordedChange(string Path, EntryKind Kind, DiffCategory Category);
+/// <param name="From">For a moved file, its old path on the target.</param>
+public sealed record RecordedChange(string Path, EntryKind Kind, DiffCategory Category, string? From = null);
 
 /// <summary>One run of a job against one target, stored in <c>history/</c>.</summary>
 public sealed record RunRecord
@@ -51,6 +52,8 @@ public sealed record RunRecord
     public int CreatedDirectories { get; init; }
 
     public int RenamedEntries { get; init; }
+
+    public int MovedFiles { get; init; }
 
     public int UpdatedTimestamps { get; init; }
 
@@ -132,6 +135,7 @@ public sealed record RunRecord
             RemovedDirectories = result.RemovedDirectories,
             CreatedDirectories = result.CreatedDirectories,
             RenamedEntries = result.RenamedEntries,
+            MovedFiles = result.MovedFiles,
             UpdatedTimestamps = result.UpdatedTimestamps,
             ArchivedFiles = result.ArchivedFiles,
             CopiedBytes = result.CopiedBytes,
@@ -144,7 +148,7 @@ public sealed record RunRecord
             Notes = result.Notes,
             SelectedChanges = selected
                 .Take(MaxRecordedChanges)
-                .Select(i => new RecordedChange(i.RelativePath, i.Kind, i.Category))
+                .Select(i => new RecordedChange(i.RelativePath, i.Kind, i.Category, i.Category == DiffCategory.Moved ? i.Target!.RelativePath : null))
                 .ToList(),
             ChangesTruncated = selected.Count > MaxRecordedChanges,
         };

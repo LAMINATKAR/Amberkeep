@@ -14,6 +14,7 @@ public static class Converters
     public static readonly IBrush Amber = new SolidColorBrush(Color.Parse("#D4911F"));
     public static readonly IBrush Red = new SolidColorBrush(Color.Parse("#D2453F"));
     public static readonly IBrush Violet = new SolidColorBrush(Color.Parse("#8E6CC9"));
+    public static readonly IBrush Teal = new SolidColorBrush(Color.Parse("#2A9D8F"));
     public static readonly IBrush Gray = new SolidColorBrush(Color.Parse("#8A8580"));
 
     public static readonly IValueConverter CategoryBrush = new FuncValueConverter<DiffCategory?, IBrush>(c => c switch
@@ -23,6 +24,7 @@ public static class Converters
         DiffCategory.TargetNewer => Amber,
         DiffCategory.Removed => Red,
         DiffCategory.CaseRename => Violet,
+        DiffCategory.Moved => Teal,
         DiffCategory.Error => Red,
         _ => Gray,
     });
@@ -49,6 +51,9 @@ public static class Converters
     });
 
     public static readonly IValueConverter CategoryText = new FuncValueConverter<DiffCategory, string>(Services.Format.Category);
+
+    public static readonly IValueConverter ChangePath =
+        new FuncValueConverter<Storage.History.RecordedChange, string>(c => c is null ? string.Empty : Services.Format.ChangePath(c));
 
     public static readonly IValueConverter Indent = new FuncValueConverter<double, Thickness>(d => new Thickness(d, 0, 0, 0));
 

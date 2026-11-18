@@ -6,6 +6,11 @@ namespace Amberkeep.Core.Safety;
 /// <summary>Individual safety checks (SPEC 4.5). Pure functions so the UI can re-evaluate them after selection changes.</summary>
 public static class SafetyChecks
 {
+    public static SafetyIssue InvalidSelection(string path) => new(
+        SafetyIssueKind.InvalidSelection,
+        SafetySeverity.Blocking,
+        $"The list of folders and files to back up contains an invalid path: \"{path}\". Edit the backup and choose them again.");
+
     public static SafetyIssue SourceMissing(string sourcePath) => new(
         SafetyIssueKind.SourceMissing,
         SafetySeverity.Blocking,

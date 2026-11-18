@@ -20,6 +20,13 @@ public enum DiffCategory
     /// <summary>Same content, name differs only in letter case: rename on the target.</summary>
     CaseRename,
 
+    /// <summary>
+    /// A file that is only on the source and a file that is only on the target are the same file (renamed folder,
+    /// file moved to another folder, renamed file): move it on the target instead of copying it again.
+    /// </summary>
+    /// <remarks>Stored by name in history, so its position in this list does not matter for saved files.</remarks>
+    Moved,
+
     /// <summary>Only on the target: remove (or move to the archive).</summary>
     Removed,
 
@@ -50,7 +57,10 @@ public sealed record DiffItem
     public ScannedEntry? Source { get; init; }
 
     /// <summary>Entry on the target; null for <see cref="DiffCategory.New"/>.</summary>
-    /// <remarks>Its path can differ from <see cref="Source"/> in letter case; the target is then renamed to match.</remarks>
+    /// <remarks>
+    /// Its path can differ from <see cref="Source"/> in letter case; the target is then renamed to match. For
+    /// <see cref="DiffCategory.Moved"/> it is the old place of the file on the target.
+    /// </remarks>
     public ScannedEntry? Target { get; init; }
 
     /// <summary>Explanation for <see cref="DiffCategory.Error"/>.</summary>

@@ -60,8 +60,9 @@ It is a single portable program for Windows: no installer, no database, no backg
 
 ## Features
 
-- **One-way mirror** of selected folders to any number of targets (external disks, USB sticks, other internal disks).
-- **Preview and approval**: a list of changes with checkboxes – new, modified, newer on the target, removed, renamed by case only. Approval before every run can be switched off per backup.
+- **One-way mirror** of selected folders to any number of targets (external disks, USB sticks, other internal disks). A backup can cover a whole folder or only the folders and files you tick in it.
+- **Preview and approval**: a list of changes with checkboxes – new, modified, newer on the target, removed, renamed, moved. Open any file from the list to check it. Approval before every run can be switched off per backup.
+- **Moved and renamed files are recognized**: a renamed folder or a moved file is moved on the target instead of being copied again.
 - **Disks recognized by a marker**, not by drive letter. A disk that comes back as `F:` instead of `E:` is still found; a different disk at the same letter is never written to.
 - **Safety guards**:
   - stops when the source is missing, empty or unreadable, or when source and target overlap,

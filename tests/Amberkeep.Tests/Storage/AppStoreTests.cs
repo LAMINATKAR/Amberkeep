@@ -35,6 +35,7 @@ public sealed class AppStoreTests : IDisposable
             MassRemovalGuard = new MassRemovalGuard(true, 25, 10),
             Archive = new ArchiveSettings { Enabled = true, RetentionDays = null },
             Exclusions = ["*.tmp", "node_modules/"],
+            IncludedPaths = ["2026", "Albums/Best"],
         };
         var config = new AppConfig { Settings = new AppSettings { HistoryLimit = 7, CloseToTray = false } }.WithJob(job);
 
@@ -43,7 +44,8 @@ public sealed class AppStoreTests : IDisposable
 
         Assert.Equal(config.Settings, loaded.Settings);
         var loadedJob = Assert.Single(loaded.Jobs);
-        Assert.Equal(job with { Exclusions = [], Targets = [] }, loadedJob with { Exclusions = [], Targets = [] });
+        Assert.Equal(job with { Exclusions = [], IncludedPaths = [], Targets = [] }, loadedJob with { Exclusions = [], IncludedPaths = [], Targets = [] });
+        Assert.Equal(job.IncludedPaths, loadedJob.IncludedPaths);
         Assert.Equal(job.Exclusions, loadedJob.Exclusions);
         Assert.Equal(job.Targets, loadedJob.Targets);
         Assert.Contains("\"compareMode\": \"Content\"", File.ReadAllText(_fx.Store.ConfigPath), StringComparison.Ordinal);

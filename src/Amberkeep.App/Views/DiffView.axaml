@@ -65,7 +65,7 @@
     </Expander>
 
     <!-- Toolbar -->
-    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,6,0,8" IsVisible="{Binding HasChanges}">
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" Margin="0,6,0,8" IsVisible="{Binding HasChanges}">
       <ItemsControl ItemsSource="{Binding Filters}">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
@@ -84,18 +84,26 @@
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
-      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
-        <TextBox Width="220" PlaceholderText="Search names" Text="{Binding SearchText}" />
-        <Button Classes="subtle" Content="Expand all" Command="{Binding ExpandAllCommand}" />
-        <Button Classes="subtle" Content="Collapse all" Command="{Binding CollapseAllCommand}" />
-        <Button Classes="subtle" Content="Reset selection" Command="{Binding SelectDefaultsCommand}" />
-      </StackPanel>
+      <TextBox Grid.Column="1" Width="260" PlaceholderText="Search names" Text="{Binding SearchText}" VerticalAlignment="Top" />
+      <Grid Grid.Row="1" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*,Auto" Margin="0,6,0,0">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Button Classes="subtle" Content="Expand all" Command="{Binding ExpandAllCommand}" />
+          <Button Classes="subtle" Content="Collapse all" Command="{Binding CollapseAllCommand}" />
+        </StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+          <Button Classes="subtle" Content="Select all" Command="{Binding SelectAllCommand}"
+                  ToolTip.Tip="Tick every change shown by the filters and the search" />
+          <Button Classes="subtle" Content="Select none" Command="{Binding SelectNoneCommand}"
+                  ToolTip.Tip="Untick every change shown by the filters and the search" />
+          <Button Classes="subtle" Content="Reset selection" Command="{Binding SelectDefaultsCommand}" />
+        </StackPanel>
+      </Grid>
     </Grid>
 
     <!-- Tree -->
     <Grid>
       <Border Classes="card" Padding="6" IsVisible="{Binding HasChanges}">
-        <ListBox Classes="tree" ItemsSource="{Binding Rows}" Background="Transparent">
+        <ListBox x:Name="Tree" Classes="tree" ItemsSource="{Binding Rows}" Background="Transparent">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:DiffNodeViewModel">
               <!-- Fixed-width columns for the chevron and the dot keep names of files and folders aligned. -->
@@ -103,6 +111,9 @@
                     Background="Transparent">
                 <Grid.ContextMenu>
                   <ContextMenu>
+                    <MenuItem Header="Open source file" Command="{Binding OpenSourceCommand}" IsVisible="{Binding IsFile}" />
+                    <MenuItem Header="Open target file" Command="{Binding OpenTargetCommand}" IsVisible="{Binding IsFile}" />
+                    <Separator IsVisible="{Binding IsFile}" />
                     <MenuItem Header="Show in source folder" Command="{Binding ShowInSourceCommand}" />
                     <MenuItem Header="Show in target folder" Command="{Binding ShowInTargetCommand}" />
                   </ContextMenu>

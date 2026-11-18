@@ -43,6 +43,27 @@ public sealed record AppConfig
     public AppConfig WithoutJob(Guid jobId) => this with { Jobs = Jobs.Where(j => j.Id != jobId).ToList() };
 
     /// <summary>
+    /// Puts the jobs in the order of <paramref name="jobIds"/> (the dashboard order). Ids of jobs that no longer exist
+    /// are ignored; jobs missing from the list (e.g. imported meanwhile) keep their order after the listed ones.
+    /// </summary>
+    public AppConfig WithJobOrder(IReadOnlyList<Guid> jobIds)
+    {
+        var rank = new Dictionary<Guid, int>();
+        foreach (var id in jobIds)
+        {
+            rank.TryAdd(id, rank.Count);
+        }
+
+        var ordered = Jobs
+            .Select((job, index) => (job, index))
+            .OrderBy(p => rank.TryGetValue(p.job.Id, out var r) ? r : int.MaxValue)
+            .ThenBy(p => p.index)
+            .Select(p => p.job)
+            .ToList();
+        return this with { Jobs = ordered };
+    }
+
+    /// <summary>
     /// Finds a source or target of any job (other than <paramref name="ignoreTargetId"/>) that is the same as,
     /// inside, or around <paramref name="path"/>. Nested targets would remove each other's backups.
     /// </summary>
@@ -239,6 +260,7 @@ public sealed record AppConfig
                 Name = name,
                 SourcePath = j.SourcePath ?? string.Empty,
                 Exclusions = (j.Exclusions ?? []).Where(e => e is not null).ToList(),
+                IncludedPaths = (j.IncludedPaths ?? []).Where(p => p is not null).ToList(),
                 CompareMode = compareMode,
                 CaseSensitivity = caseSensitivity,
                 MassRemovalGuard = guard,
@@ -371,6 +393,12 @@ public sealed record JobConfig
 
     public string SourcePath { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Back up only these folders and files of the source ('/'-separated relative paths); empty = the whole folder.
+    /// Items outside the selection are neither copied nor removed on the target.
+    /// </summary>
+    public IReadOnlyList<string> IncludedPaths { get; init; } = [];
+
     public IReadOnlyList<string> Exclusions { get; init; } = [.. DefaultExclusions.Patterns];
 
     public CompareMode CompareMode { get; init; } = CompareMode.SizeAndTime;
@@ -417,6 +445,7 @@ public sealed record JobConfig
     {
         CompareMode = CompareMode,
         Exclusions = Exclusions,
+        IncludedPaths = IncludedPaths,
         CaseSensitivity = CaseSensitivity,
         IgnoreOneHourShift = IgnoreOneHourShift,
         MassRemovalGuard = MassRemovalGuard,
@@ -443,6 +472,11 @@ public sealed record JobConfig
         if (!AppConfig.IsUsablePath(SourcePath))
         {
             errors.Add("The source folder must be a full, valid path.");
+        }
+
+        foreach (var path in IncludedPaths.Where(p => !IncludeFilter.IsValidPath(p)))
+        {
+            errors.Add($"\"{path}\" is not a valid folder or file inside the source.");
         }
 
         try

@@ -62,6 +62,26 @@
     <Setter Property="CornerRadius" Value="12" />
     <Setter Property="Padding" Value="20" />
   </Style>
+  <Style Selector="Border.card.dragging">
+    <Setter Property="BorderBrush" Value="{DynamicResource SystemControlHighlightAccentBrush}" />
+    <Setter Property="Opacity" Value="0.85" />
+  </Style>
+  <!-- Grip for dragging a backup card to another place. -->
+  <Style Selector="Border.drag-handle">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Cursor" Value="SizeAll" />
+    <Setter Property="Padding" Value="4,6" />
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+  <Style Selector="Border.drag-handle:pointerover">
+    <Setter Property="Background" Value="{DynamicResource SubtleBrush}" />
+  </Style>
+  <Style Selector="Border.drag-handle Ellipse">
+    <Setter Property="Width" Value="3" />
+    <Setter Property="Height" Value="3" />
+    <Setter Property="Margin" Value="1.5" />
+    <Setter Property="Fill" Value="{DynamicResource MutedTextBrush}" />
+  </Style>
   <Style Selector="Border.row">
     <Setter Property="Background" Value="{DynamicResource SubtleBrush}" />
     <Setter Property="CornerRadius" Value="8" />

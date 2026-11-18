@@ -38,6 +38,42 @@
               <TextBox Classes="mono" Text="{Binding SourcePath}" PlaceholderText="Folder to back up" />
               <Button Grid.Column="1" Content="Browse…" Margin="8,0,0,0" Command="{Binding BrowseSourceCommand}" />
             </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,4,0,0">
+              <RadioButton GroupName="Scope" Content="Everything in the folder" IsChecked="{Binding !OnlySelected}" />
+              <RadioButton GroupName="Scope" Content="Only selected folders and files" IsChecked="{Binding OnlySelected}" />
+            </StackPanel>
+            <StackPanel Spacing="6" IsVisible="{Binding OnlySelected}">
+              <TextBlock Classes="muted small" TextWrapping="Wrap"
+                         Text="A ticked folder is backed up with everything in it, also what is added to it later. Other folders that appear in the source later are not backed up until you tick them. Items you untick stay on the target." />
+              <TextBlock Classes="muted" Text="Choose an existing source folder first."
+                         IsVisible="{Binding SourcePicker, Converter={x:Static ObjectConverters.IsNull}}" />
+              <Border BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="4"
+                      IsVisible="{Binding SourcePicker, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <ListBox Classes="tree" Height="260" Background="Transparent" ItemsSource="{Binding SourcePicker.Rows, FallbackValue={x:Null}}">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SourceNodeViewModel">
+                      <Grid ColumnDefinitions="20,Auto,*" Margin="{Binding Indent, Converter={x:Static app:Converters.Indent}}" Background="Transparent">
+                        <Button Classes="icon" Command="{Binding ToggleExpandedCommand}" IsVisible="{Binding CanExpand}"
+                                Content="{Binding IsExpanded, Converter={x:Static app:Converters.Chevron}}" />
+                        <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" MinWidth="0" Margin="4,0,6,0" Padding="0"
+                                  VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Name}" Classes.muted="{Binding IsMissing}" />
+                          <TextBlock Classes="small" Text="{Binding Note}" VerticalAlignment="Center"
+                                     Foreground="{x:Static app:Converters.Amber}"
+                                     IsVisible="{Binding Note, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Border>
+              <TextBlock Classes="small" Text="{Binding SourcePicker.SummaryText, FallbackValue={x:Null}}"
+                         IsVisible="{Binding SourcePicker, Converter={x:Static ObjectConverters.IsNotNull}}" />
+              <TextBlock Classes="small" TextWrapping="Wrap" Foreground="{x:Static app:Converters.Amber}"
+                         Text="{Binding SourcePicker.LoadError, FallbackValue={x:Null}}"
+                         IsVisible="{Binding SourcePicker.LoadError, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
+            </StackPanel>
           </StackPanel>
         </Border>
 

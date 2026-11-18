@@ -69,7 +69,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
         private int _completed;
         private int _total;
         private long _totalBytes;
-        private int _copied, _replaced, _removedFiles, _removedDirs, _createdDirs, _renamed, _timestamps, _archived;
+        private int _copied, _replaced, _removedFiles, _removedDirs, _createdDirs, _renamed, _moved, _timestamps, _archived;
         private long _copiedBytes;
         private long _progressBytes;
         private bool _freeSpaceUnknown;
@@ -128,9 +128,14 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             var cancelled = false;
             try
             {
-                RemoveEntries(selected);
+                RemoveFiles(selected);
                 RenameEntries(selected);
                 CreateDirectories(selected);
+                MoveFiles(selected);
+
+                // After the moves, so that a renamed folder is empty by now; before copying, so that a folder
+                // replaced by a file makes room for it.
+                RemoveDirectories(selected);
                 CopyFiles(selected);
                 UpdateTimestamps(selected);
                 CleanArchive();
@@ -267,11 +272,9 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                 ? stamp
                 : null;
 
-        private void RemoveEntries(List<DiffItem> selected)
+        private void RemoveFiles(List<DiffItem> selected)
         {
-            var removals = selected.Where(i => i.Category == DiffCategory.Removed).ToList();
-
-            foreach (var item in removals.Where(i => i.Kind == EntryKind.File))
+            foreach (var item in selected.Where(i => i is { Category: DiffCategory.Removed, Kind: EntryKind.File }))
             {
                 Do(item, ExecutionOperation.Remove, () =>
                 {
@@ -282,13 +285,19 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                     _removedFiles++;
                 });
             }
+        }
 
+        private void RemoveDirectories(List<DiffItem> selected)
+        {
             // Deepest first, so that a folder is empty by the time it is removed.
-            foreach (var item in removals.Where(i => i.Kind == EntryKind.Directory).OrderByDescending(i => Depth(i.RelativePath)))
+            var removals = selected
+                .Where(i => i is { Category: DiffCategory.Removed, Kind: EntryKind.Directory })
+                .OrderByDescending(i => Depth(i.RelativePath));
+            foreach (var item in removals)
             {
                 Do(item, ExecutionOperation.Remove, () =>
                 {
-                    var path = TargetPath(item.Target!.RelativePath);
+                    var path = TargetPath(CurrentTargetRelative(item.Target!.RelativePath));
                     var entry = fs.GetEntry(path);
                     if (entry is null)
                     {
@@ -369,6 +378,45 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
                     _createdDirs++;
                 });
             }
+        }
+
+        private void MoveFiles(List<DiffItem> selected)
+        {
+            foreach (var item in selected.Where(i => i.Category == DiffCategory.Moved))
+            {
+                Do(item, ExecutionOperation.Move, () => MoveFile(item));
+            }
+        }
+
+        /// <summary>
+        /// Moves a file on the target from its old place to the new one (renamed folder, moved or renamed file), so it
+        /// is not copied again. Only while both the file in the source and the old file on the target are still the
+        /// ones the analysis paired, and nothing has appeared at the new place.
+        /// </summary>
+        private void MoveFile(DiffItem item)
+        {
+            EnsureUnchanged(item.Source!, SourcePath(item.Source!.RelativePath));
+            EnsureNotBackInSource(item.Target!);
+            var from = TargetPath(CurrentTargetRelative(item.Target!.RelativePath));
+            EnsureUnchangedOnTarget(item.Target, from);
+
+            var destination = TargetPath(TargetRelativeFor(item.Source.RelativePath));
+            if (fs.GetEntry(destination) is not null)
+            {
+                throw new StaleItemException("Something now exists at this path on the target – analyze again.");
+            }
+
+            EnsureNoLinkAbove(destination);
+            var parent = Path.GetDirectoryName(destination)!;
+            if (fs.GetEntry(parent) is null)
+            {
+                // The new folder may be unselected in the diff; a selected move still needs it.
+                fs.CreateDirectory(_guard.Check(parent));
+                _createdDirs++;
+            }
+
+            fs.MoveFile(_guard.Check(from), _guard.Check(destination), overwrite: false);
+            _moved++;
         }
 
         private void CopyFiles(List<DiffItem> selected)
@@ -834,6 +882,7 @@ public sealed class MirrorExecutor(IWritableFileSystem fileSystem, TimeProvider 
             RemovedDirectories = _removedDirs,
             CreatedDirectories = _createdDirs,
             RenamedEntries = _renamed,
+            MovedFiles = _moved,
             UpdatedTimestamps = _timestamps,
             ArchivedFiles = _archived,
             CopiedBytes = _copiedBytes,

@@ -1,6 +1,6 @@
 # Amberkeep – specification
 
-> Status: version 1.1.0 (2026-11-17), the first public release. Chapter 8 lists what is done and what comes later.
+> Status: version 1.2.0 (2026-11-18). Version 1.1.0 was the first public release. Chapter 8 lists what is done and what comes later.
 
 ## 1. Purpose
 
@@ -14,7 +14,7 @@ Amberkeep is a general-purpose desktop program for backing up selected folders t
 
 | Term | Meaning |
 |---|---|
-| **Job** (backup) | One source folder + one or more targets + mode + exclusions + options. |
+| **Job** (backup) | One source folder (all of it, or only selected folders and files in it) + one or more targets + mode + exclusions + options. |
 | **Target** | A folder on some disk that is backed up to. It is recognized by its marker, not by drive letter. |
 | **Marker** | The file `.amberkeep/target.json` in the target folder, holding the unique target ID. |
 | **Archive** | Optional storage place **on the target** for files that would otherwise be deleted or overwritten. |
@@ -27,7 +27,7 @@ Amberkeep is a general-purpose desktop program for backing up selected folders t
 - **Job modes:** *Mirror* (one-way). *Two-way sync* is **deferred to a later phase** (after the first version is released). Chapter 4.3 is only a draft so far.
 - **Only the selected folder is backed up.** The program ignores everything on the target disk outside the target folder.
 - **Archive** is optional (per job) and **off by default**.
-- **One source per job.** Several folders = several jobs. The dashboard has a *Run all* button.
+- **One source per job.** Several folders = several jobs. The dashboard has a *Run all* button. Within its source, a job can back up only selected folders and files (chapter 4.1, 1.2.0), so backing up some subfolders of one folder needs one job, not several.
 - **Default trigger: none** (manual start). Automatic triggers are turned on in the job.
 - **Diff** shows categories of changes; every item and folder can be ticked or unticked. Approval is turned on by a switch and **also applies to the first run**: if approval is off, the first run does not ask for approval either.
 - **No database.** Configuration is in a JSON file, history in files next to the exe (chapter 5).
@@ -49,6 +49,10 @@ Amberkeep is a general-purpose desktop program for backing up selected folders t
 - Names are compared in Unicode form NFC. A name stored decomposed (NFD, typically macOS) is the same name as a composed one (NFC, typically Windows). On Windows and Linux, where the file system keeps both forms as different names, a difference only in form is treated as a rename (CaseRename), so that no second folder appears on the target. Not on macOS (1.0.1).
 - **Name collision:** if one side has two names in one folder that differ only in letter case or Unicode form (e.g. a case-sensitive folder from WSL or git), it is unknown which is which. Both are listed under *Errors*, and nothing under their path is changed on the target (1.0.1).
 - **Exclusions apply on both sides.** Excluded items are not backed up from the source and not deleted on the target.
+- **Selected folders and files** (1.2.0): a job backs up its whole source folder, or only the folders and files ticked in the editor (`includedPaths`, relative paths). A ticked folder includes everything in it, also what is added later. Folders above a ticked item are created on the target as containers, without their other content. Like exclusions, the selection applies on both sides: nothing outside it is copied, changed or removed on the target. Exclusions also apply inside the selection.
+  - A ticked item that is missing in the source (renamed, deleted, excluded) is listed under *Errors*, and nothing under its path is changed on the target. If nothing ticked is left in the source, the "source empty" guard stops the run (chapter 4.5).
+  - A selection with an invalid path (empty, rooted, `..`, characters a name cannot contain; only possible in a hand-edited or imported file) stops the run; it never turns into "the whole folder".
+  - Items unticked later stay on the target; they can be deleted there by hand.
 - **An unreadable folder** (missing permissions, etc.) is listed under *Errors*. Nothing under its path is deleted or written on the target, because its contents are unknown.
 - Hidden and system files are backed up.
 - **Names Windows cannot handle reliably** (on Windows): a name ending with a dot or a space, or a name the running Windows treats as a device (always `NUL`, on Windows 10 also e.g. `CON` or `aux.c`), can exist on a disk written by another system. Windows would apply an operation on it to a different file (`file.` means `file`). The program asks Windows how it reads each name. Such an entry is listed under *Skipped* and nothing under its path is changed (1.1.0).
@@ -64,25 +68,35 @@ Amberkeep is a general-purpose desktop program for backing up selected folders t
 | **Target newer** | file is on both, differs, target is newer | overwrite with the version from the source | **no** (warning) |
 | **Timestamp only** | only in content comparison mode: content is equal, only the time differs | align the time on the target | yes |
 | **Case rename** | same content, name differs only in letter case (`Photo.JPG` ↔ `photo.jpg`) | rename on the target | yes |
+| **Moved** (1.2.0) | a file only on the source and a file only on the target are the same file (renamed folder, file moved to another folder, renamed file) | move on the target instead of copying again | yes |
 | **Removed** | file is on the target, not on the source | move to the archive or delete | yes |
 | **Unchanged** | equal | nothing | – (hidden, count only) |
 | **Error** | file inaccessible or locked, missing permissions | skip and log | – |
-| *Moved* (later phase) | same content, different path | move on the target instead of copying again | yes |
 
 - Categories apply to files and folders. **Empty folders are mirrored.** A removed folder is broken down in the diff into individual items.
 - If a file differs both in content and in the letter case of its name, it is one *Modified* item, and the name on the target is changed at the same time.
 - If a file changed into a folder with the same name (or vice versa), the old one is removed on the target (*Removed*) and the new one is created (*New*).
 - Mirror needs no saved state: the diff is created by comparing the source and the target directly.
+- **Move detection** (1.2.0): after the comparison, files that would be *New* are paired with files that would be *Removed*. A pair becomes one *Moved* item only when it is unambiguous, so a wrong pair can never put wrong content into the backup:
+  - equal size (not empty) and modification time (with the same tolerance and FAT one-hour rule as the comparison),
+  - **the same name** (by the job's letter-case rule and Unicode form), and no other candidate with the same name, size and time on either side: renamed folders and files moved to another folder. Size and time are enough here,
+  - otherwise (a renamed file) no other candidate with the same size and time on either side, and **the content is compared byte by byte**,
+  - with comparison by content, every pair is compared byte by byte,
+  - not paired: paths that differ only in letter case or Unicode form (a case-sensitive backup; they may be the same file on the target), a file replaced by a folder of the same name, more than 64 files of one size (and name) on a side,
+  - an ambiguous or unconfirmed pair stays *New* + *Removed*.
+- A *Moved* item is shown at its new place with "from <old path>". It needs no space and nothing is copied. Moves do not count as removals for the mass-removal guard. An unticked *Moved* item changes nothing: the old file stays and the new one is not copied.
 
 #### Execution (Mirror)
 
 Only **ticked** items are executed, in this order:
 
-1. **Removals:** files first, then folders from the deepest. A file goes to the archive or is deleted (the read-only attribute is cleared before deletion). A folder is deleted only when it is empty; otherwise it stays and a note is written to the result (e.g. the user unticked something in it). Removals go first to free up both space and the path (a file replaced by a folder).
+1. **Removed files.** A file goes to the archive or is deleted (the read-only attribute is cleared before deletion). Removals go first to free up both space and the path (a file replaced by a folder).
 2. **Renames** (letter case change): folders first, top-down, then files, always through a temporary name.
 3. **New folders** top-down. A parent folder needed by a ticked file is created even when it is unticked itself.
-4. **Copying** (New, Modified, Target newer): the file is copied to `<target>/.amberkeep/tmp/`, written to disk (flush), optionally verified by comparing it with the source, and gets the modification time, creation time and the ReadOnly/Hidden/System/Archive attributes from the source. The original version on the target goes to the archive or is deleted, and the new one is moved into its place. Without the archive, the replacement is atomic. **ACLs, owner and alternate data streams (ADS) are not copied.**
-5. **Times** (Timestamp only).
+4. **Moves** (1.2.0): each file is moved from its old place to the new one on the target. Only while the source file and the old target file still have the size and time from the analysis, the old path is not back in the source, nothing exists at the new place, and no folder above either path is a link. A missing parent folder is created. Nothing goes to the archive (nothing is lost).
+5. **Removed folders** from the deepest. A folder is deleted only when it is empty; otherwise it stays and a note is written to the result (e.g. the user unticked something in it). After the moves, so that a renamed folder is empty by then; before copying, so that a folder replaced by a file makes room (order changed in 1.2.0, before it was step 1).
+6. **Copying** (New, Modified, Target newer): the file is copied to `<target>/.amberkeep/tmp/`, written to disk (flush), optionally verified by comparing it with the source, and gets the modification time, creation time and the ReadOnly/Hidden/System/Archive attributes from the source. The original version on the target goes to the archive or is deleted, and the new one is moved into its place. Without the archive, the replacement is atomic. **ACLs, owner and alternate data streams (ADS) are not copied.**
+7. **Times** (Timestamp only).
 
 - **Stale diff check:** before each operation, it is verified that the source and the target still have the same size and time as during analysis, and for *New* that nothing has appeared on the target in the meantime. If something changed, the item is skipped with the error "Changed since analysis – analyze again". This way a file edited in the meantime is never deleted or overwritten.
 - Moves and deletions are retried briefly on a transient error (access denied, file in use by another process, typically an antivirus right after writing), at most 3 times within ~0.6 s.
@@ -143,7 +157,7 @@ Each side is compared with the snapshot:
    - Both the percentage and the count can be **set per job**. Each condition can be turned off separately (100 % or 0 files), and the whole guard can be **turned off**.
    - The warning states which condition was exceeded.
    - When the guard triggers, the diff is shown with a clear warning. In the background a notification appears instead of a silent run.
-   - Renaming a large folder (until move detection is implemented) looks like removal + new files, so it may trigger the guard. This is intended.
+   - Files recognized as moved (renamed folder, chapter 4.2) are not removals and do not trigger the guard (1.2.0). A move that is not recognized (ambiguous, or changed content) still looks like removal + new files and may trigger it.
 3. **Marker mismatch** → nothing is written to the target; the target is shown as "not connected".
 4. **Not enough space** → the required space is checked before starting, and the run does not start.
    - Free space and the mass-removal guard are **recalculated from the ticked items** at execution. If approval is required and the run is not approved, nothing is changed.
@@ -261,6 +275,7 @@ state/                     ← state snapshots for Two-way, one file per source�
   "settings": { "historyLimit": 100, "closeToTray": true, "startWithSystem": false, "notifications": true, "automaticRunsPaused": false },
   "jobs": [{
     "id": "…", "name": "Photos", "sourcePath": "D:\\Photos",
+    "includedPaths": [],                                         // only these folders/files of the source, e.g. ["2026", "Albums/Best"]; [] = all
     "exclusions": ["$RECYCLE.BIN/", "…"], "compareMode": "SizeAndTime", "caseSensitivity": "Auto", "ignoreOneHourShift": true,
     "massRemovalGuard": { "enabled": true, "percent": 50, "count": 1000 },   // 100 % / 0 = condition off
     "archive": { "enabled": false, "retentionDays": 30 },        // retentionDays: null = forever
@@ -301,13 +316,13 @@ state/                     ← state snapshots for Two-way, one file per source�
 
 ## 6. UI (draft, refined during implementation)
 
-1. **Dashboard:** list of jobs and their targets. State of each target (connected / not connected, last backup, free space), *Analyze* and *Run* buttons. A **One-time run…** button.
+1. **Dashboard:** list of jobs (in an order the user can change by dragging) and their targets. State of each target (connected / not connected, last backup, free space), *Analyze* and *Run* buttons. A **One-time run…** button.
 2. **Job editor:**
-   - mode (Mirror / Two-way), source, targets (add, remove, Locate),
+   - mode (Mirror / Two-way), source (all of it or selected folders and files), targets (add, remove, Locate),
    - exclusions (patterns like `node_modules/`, `*.tmp`, with preset system exclusions),
    - comparison by size and time or by content (byte by byte), archive and its cleanup, conflict resolution (Two-way),
    - approval, removal guard threshold, triggers.
-3. **Diff view:** a tree with colored categories, ticking (a folder ticks or unticks all its contents), filters by category, search and totals (counts, sizes, required space). For Two-way the direction is shown too (→ / ←). Buttons *Approve & run* / *Cancel*.
+3. **Diff view:** a tree with colored categories, ticking (a folder ticks or unticks all its contents, *Select all* / *Select none*), filters by category, search and totals (counts, sizes, required space). For Two-way the direction is shown too (→ / ←). Buttons *Approve & run* / *Cancel*.
 4. **Progress:** overall and current file, speed, time estimate, *Cancel*, *Continue in background*.
 5. **History:** list of runs with result and detail (log, errors) and report export.
 6. **Archive browser:** snapshots by date, restoring selected files.
@@ -329,20 +344,26 @@ state/                     ← state snapshots for Two-way, one file per source�
   - Fluent theme, light and dark mode following the system,
   - amber accent color, Inter font,
   - the logo is a vector amber stone,
-  - diff category colors: New green, Modified blue, Target newer amber, Removed red, Renamed purple.
+  - diff category colors: New green, Modified blue, Target newer amber, Removed red, Renamed purple, Moved teal.
 - **The diff tree** is custom and virtualized (`ListBox` over flattened rows), so it handles even hundreds of thousands of items. `TreeDataGrid` is not used, because in version 12 it is not under the MIT license.
   - Folders that are not a change serve only as groups.
   - Three-state checkboxes: ticking a folder ticks or unticks all its contents.
   - Totals and the mass-removal guard are recalculated on every selection change.
+  - **Select all** and **Select none** (1.2.0) tick or untick every change that the category filters and the search show; hidden changes keep their state. *Select all* also ticks *Target newer*. *Reset selection* returns to the default.
   - **Row context menu** (right button): *Show in source folder* and *Show in target folder* open the file manager with the item selected (Windows `explorer /select`, macOS `open -R`, Linux only its folder).
-    - The option is disabled on the side where the item does not exist (*New* on the target, *Removed* on the source). For *Case rename*, the name on that side is used.
+    - The option is disabled on the side where the item does not exist (*New* on the target, *Removed* on the source). For *Case rename*, the name on that side is used; for *Moved*, the target side is the old place.
     - If the item has disappeared since the analysis, the nearest existing parent folder is opened.
-    - The file is deliberately not opened in its default application: a program cannot be launched by mistake, and an external editor cannot change the source while the diff is being reviewed.
+  - **Opening a file** (1.2.0, change after testing 1.1.0, before it was deliberately not possible): *Open source file* and *Open target file* in the context menu (files only, on the side where the file exists) open it in its default application, e.g. to look at a photo. A double-click on a file opens the source version (the target one for *Removed*); on a folder it expands or collapses it.
+    - It runs with the user's own rights, as a double-click in the file manager. To avoid starting a program by an accidental double-click (also one from a foreign disk on the target), a program, script, installer or shortcut (`.exe`, `.bat`, `.cmd`, `.ps1`, `.msi`, `.lnk`, `.js`, `.vbs`, … and the extensions in `PATHEXT`) is opened only after confirmation.
+    - A file gone since the analysis is not opened; a message says so.
+    - A file changed by the opened application is caught by the stale-diff check (chapter 4.2): it is not overwritten or deleted, the item asks to analyze again.
 - **Run on the dashboard:**
   - if the job requires approval, or the diff requires approval or is blocked, the diff is shown,
   - otherwise the run proceeds directly,
   - if there are no changes, "Up to date" is shown.
 - **Run all:** goes through all connected targets one by one. It continues with the next target when the result or the diff is closed.
+- **Order of backups** (1.2.0): a card on the dashboard is dragged by its grip (left of its name) to another place; the cards move while dragging. Releasing the button saves the order to `amberkeep.json`; *Esc* or losing the pointer puts it back. *Run all*, the tray menu, the History filter and export follow the order. With read-only settings there is no grip.
+- **Selected folders and files** (1.2.0): in the editor, *What to back up* offers *Everything in the folder* or *Only selected folders and files*. The second shows the source as a tree with checkboxes (folders listed only when expanded, off the UI thread). A ticked folder includes everything in it; unticking something inside a ticked folder replaces the folder by the rest of its contents. Folders leading to ticked items open when the editor opens, ticked items missing in the source are shown as *missing* so they can be unticked, and a summary counts what is ticked. Saving needs at least one ticked item. The dashboard card shows "Only: …" under the source path, and the import summary lists it. The one-time run always takes the whole folder.
 - **Progress page** (change after testing 1.1.0):
   - speed and time estimate are separate fixed-width columns with tabular digits, and the speed always has one decimal, so the estimate does not jump when the speed changes,
   - *Continue in background* returns to the dashboard while the backup keeps running. The dashboard then shows a bar with the backup's progress and *Show progress*; after it finishes, its result and *Show result*. The bar disappears when the result is closed with *Done* (only then does *Run all* continue). Opening another backup page replaces it.
@@ -445,17 +466,19 @@ Paid Avalonia add-ons (Accelerate, XPF) are not used.
    - ✅ **Fixes 1.0.2:** second review of the whole code: check for a path returning to the source by the backup's rules, shared folders of this computer, links above an item, *Clean up* never locks the program, import and moved target checked against other backups, fixing schedule values, schedule start, the window does not freeze on an unavailable network, the backup screen does not get stuck, *Quit* always exits. Done 2026-11-14.
 8. ✅ **Version 1.1.0 (first public release):** *Show in source folder* / *Show in target folder* in the diff (chapter 6.1), *Continue in background* on the backup page, runs of a deleted backup stay in History (chapter 4.8). Repository: English SPEC, README with screenshots, `CHANGELOG.md`, `SECURITY.md` and `CONTRIBUTING.md`; the history before publishing is condensed into one commit per version, with tags `v1.0.0` to `v1.1.0`. Fixes from a security audit: import shows a summary of each backup before importing, archive browser and restore never go through links, names Windows changes are skipped, a refused write fails only its item, exclusion patterns match in linear time, damaged history records are read safely. Done 2026-11-17.
 
+9. ✅ **Version 1.2.0 (changes after testing 1.1.0):** move detection (*Moved*: renamed folders, moved and renamed files are moved on the target, chapter 4.2), backing up only selected folders and files of a source (chapter 4.1), opening a file from the diff, *Select all* / *Select none* in the diff, and changing the order of backups by dragging (chapter 6.1). Done 2026-11-18.
+
 **After version 1.0 (later phases):**
 
 - **Linux (linux-x64) and macOS (osx-arm64):** publish profiles and verification on a real system. For macOS also an `.app` bundle with `.icns`, and signing.
 - **Two-way sync:** state snapshots (`state/`), change detection on both sides, conflicts. UI for the mode and the direction in the diff.
-- CLI mode, move detection, hash cache.
+- CLI mode, hash cache.
 
 ## 9. Open points
 
 - [x] Archive off by default, retention 30 days.
 - [x] Removal guard: > 50 % (at least 20 files) OR ≥ 1,000 files, configurable, can be turned off (changed during testing 1.0, previously AND).
-- [x] One source per job.
+- [x] One source per job; within it, selected folders and files (1.2.0).
 - [x] Default trigger: none (manual).
 - [x] Closing the window: minimize to tray.
 - [x] Linux: without a tray icon, notifications are enough.

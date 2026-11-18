@@ -82,7 +82,7 @@
         </Border>
 
         <!-- Jobs -->
-        <ItemsControl ItemsSource="{Binding Jobs}">
+        <ItemsControl x:Name="JobList" ItemsSource="{Binding Jobs}">
           <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>
               <StackPanel Spacing="16" />
@@ -90,10 +90,16 @@
           </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:JobCardViewModel">
-              <Border Classes="card">
+              <Border Classes="card" Classes.dragging="{Binding IsDragging}">
                 <StackPanel Spacing="12">
-                  <Grid ColumnDefinitions="*,Auto">
-                    <StackPanel Spacing="4">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Classes="drag-handle" IsVisible="{Binding CanEdit}" VerticalAlignment="Top" Margin="-10,2,8,0"
+                            ToolTip.Tip="Drag to change the order of backups">
+                      <UniformGrid Columns="2" Rows="3">
+                        <Ellipse /><Ellipse /><Ellipse /><Ellipse /><Ellipse /><Ellipse />
+                      </UniformGrid>
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="4">
                       <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock Classes="h2" Text="{Binding Name}" VerticalAlignment="Center" />
                         <Border Classes="chip" IsVisible="{Binding ArchiveEnabled}">
@@ -107,8 +113,10 @@
                         </Border>
                       </StackPanel>
                       <TextBlock Classes="path" Text="{Binding SourcePath}" />
+                      <TextBlock Classes="muted small" Text="{Binding SelectionText}" TextTrimming="CharacterEllipsis"
+                                 IsVisible="{Binding SelectionText, Converter={x:Static ObjectConverters.IsNotNull}}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
                       <Button Classes="subtle" Content="Edit" Command="{Binding EditCommand}" IsEnabled="{Binding CanEdit}" />
                       <Button Classes="subtle danger" Content="Delete" Command="{Binding DeleteCommand}" IsEnabled="{Binding CanEdit}" />
                     </StackPanel>

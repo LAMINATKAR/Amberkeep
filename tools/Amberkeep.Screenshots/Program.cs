@@ -58,6 +58,9 @@ foreach (var (variant, suffix) in new[] { (ThemeVariant.Light, "light"), (ThemeV
     Render(main, new JobEditorViewModel(main, weeklyJob), $"03b-editor-weekly-{suffix}", scrollToEnd: true);
     var monthlyJob = photos0 with { Trigger = photos0.Trigger with { Schedule = new ScheduleConfig { Kind = ScheduleKind.Monthly, DayOfMonth = 31, Time = new TimeOnly(20, 0) } } };
     Render(main, new JobEditorViewModel(main, monthlyJob), $"03c-editor-monthly-{suffix}", scrollToEnd: true);
+    var selectionEditor = new JobEditorViewModel(main, photos0 with { IncludedPaths = ["2024/Holiday", "Albums 2024", "Missing folder"] });
+    Pump(selectionEditor.LoadSourcePickerAsync());
+    Render(main, selectionEditor, $"03d-editor-selection-{suffix}");
     Render(main, new DiffViewModel(main, sample.Diff, "Photos → External HDD", false, _ => Task.CompletedTask), $"04-diff-{suffix}");    Render(main, new BusyViewModel("Analyzing", "Photos → External HDD") { Status = "Scanning…  12,408 items in the source, 11,950 on the target" }, $"05-busy-{suffix}");
 
     var running = new RunViewModel(main, "Photos → External HDD", sample.Source, sample.Target, (_, _) => new TaskCompletionSource<RunOutcome>().Task);
@@ -236,6 +239,8 @@ void ShowExamplePaths(Avalonia.Visual root)
                 block.Text = shown;
                 break;
             case Avalonia.Controls.TextBox { Text: { } text } box when Shown(text) is { } shown:
+                // Detached first, so the example path is not written back to the view model (it would reload from it).
+                box.DataContext = null;
                 box.Text = shown;
                 break;
         }
@@ -323,6 +328,10 @@ internal sealed class SilentDialogs : IDialogService
     public void RevealInFileManager(string path)
     {
     }
+
+    public void OpenFile(string path)
+    {
+    }
 }
 
 /// <summary>Builds jobs, targets, history and a diff with every category in a sandbox folder.</summary>
@@ -381,10 +390,11 @@ internal sealed record SampleData(AppServices Services, AppServices EmptyService
         File.Delete(Path.Combine(source, "2025", "Family", "notes.txt"));
         Write(target, "Edited on target.docx", "edited on the target later", t0.AddDays(3));
         Write(target, "Old stuff/readme.txt", "old", t0);
+        Directory.Move(Path.Combine(source, "Albums"), Path.Combine(source, "Albums 2024"));
 
         // Documents: target folder exists, but holds a different disk's marker.
         var documentsSource = Dir(root, "documents");
-        var documents = new JobConfig { Name = "Documents", SourcePath = documentsSource, RequireApproval = false };
+        var documents = new JobConfig { Name = "Documents", SourcePath = documentsSource, RequireApproval = false, IncludedPaths = ["Invoices", "Letters/2026"] };
         var docsTarget = services.Registry.AddTarget(services.Config, documents, Path.Combine(volumeA, "Docs"), "USB stick");
         File.Delete(Path.Combine(docsTarget.LastKnownPath, ".amberkeep", "target.json"));
         services.Save(services.Config.WithJob(documents.WithTarget(docsTarget)));

@@ -39,7 +39,7 @@ public sealed class FunctionalUiTests : IDisposable
     public async Task Right_click_on_a_change_shows_it_in_the_file_manager()
     {
         _fx.Source.File("docs/new.txt");
-        _fx.Target.File("docs/old.txt");
+        _fx.Target.File("docs/old.txt", "old");
         var diff = await _fx.AnalyzeAsync();
 
         await HeadlessApp.Session.Dispatch(
@@ -55,21 +55,36 @@ public sealed class FunctionalUiTests : IDisposable
                 var menu = added.ContextMenu!;
                 Assert.True(menu.IsOpen);
                 var items = menu.Items.OfType<MenuItem>().ToList();
-                Assert.Equal(["Show in source folder", "Show in target folder"], items.Select(i => i.Header as string));
+                Assert.Equal(
+                    ["Open source file", "Open target file", "Show in source folder", "Show in target folder"],
+                    items.Select(i => i.Header as string));
                 Assert.True(items[0].IsEffectivelyEnabled);
                 Assert.False(items[1].IsEffectivelyEnabled);
-                Click(items[0]);
+                Assert.True(items[2].IsEffectivelyEnabled);
+                Assert.False(items[3].IsEffectivelyEnabled);
+                Click(items[2]);
                 Assert.False(menu.IsOpen);
 
                 var removed = Row(window, "old.txt");
                 Click(removed, MouseButton.Right);
                 var removedItems = removed.ContextMenu!.Items.OfType<MenuItem>().ToList();
                 Assert.False(removedItems[0].IsEffectivelyEnabled);
+                Assert.True(removedItems[1].IsEffectivelyEnabled);
+                Assert.False(removedItems[2].IsEffectivelyEnabled);
+                Click(removedItems[3]);
+                Click(removed, MouseButton.Right);
                 Click(removedItems[1]);
 
                 Assert.Equal(
                     [Path.Combine(_fx.Source.Root, "docs", "new.txt"), Path.Combine(_fx.Target.Root, "docs", "old.txt")],
                     _dialogs.Revealed);
+                Assert.Equal([Path.Combine(_fx.Target.Root, "docs", "old.txt")], _dialogs.Opened);
+
+                var folder = Row(window, "docs");
+                Click(folder, MouseButton.Right);
+                Assert.Equal(
+                    ["Show in source folder", "Show in target folder"],
+                    folder.ContextMenu!.Items.OfType<MenuItem>().Where(i => i.IsVisible).Select(i => i.Header as string));
                 window.Close();
             },
             TestContext.Current.CancellationToken);
@@ -137,6 +152,70 @@ public sealed class FunctionalUiTests : IDisposable
             },
             TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task Dragging_a_card_by_its_grip_changes_and_saves_the_order_and_esc_cancels()
+    {
+        _app.SavedJob("Photos");
+        _app.SavedJob("Documents");
+        _app.SavedJob("Music");
+
+        await HeadlessApp.Session.Dispatch(
+            async () =>
+            {
+                _app.Shell.ShowDashboard();
+                var window = Show();
+                await Until(() => _app.Shell.Dashboard.Jobs.Count == 3);
+
+                // Drag Music above Photos.
+                var top = Card(window, "Photos");
+                var start = Center(Grip(window, "Music"), window);
+                window.MouseMove(start);
+                window.MouseDown(start, MouseButton.Left);
+                window.MouseMove(start + new Vector(0, -2));
+                Pump();
+                Assert.Equal(["Photos", "Documents", "Music"], _app.Shell.Dashboard.Jobs.Select(j => j.Name));
+                var above = top.TranslatePoint(new Point(40, 5), window)!.Value;
+                window.MouseMove(new Point(start.X, above.Y));
+                Pump();
+                Assert.Equal(["Music", "Photos", "Documents"], _app.Shell.Dashboard.Jobs.Select(j => j.Name));
+                Assert.True(_app.Shell.Dashboard.Jobs[0].IsDragging);
+                Assert.Equal(["Photos", "Documents", "Music"], _app.Services.Config.Jobs.Select(j => j.Name));
+                window.MouseUp(new Point(start.X, above.Y), MouseButton.Left);
+                Pump();
+
+                Assert.False(_app.Shell.Dashboard.Jobs[0].IsDragging);
+                Assert.Equal(["Music", "Photos", "Documents"], _app.Services.Config.Jobs.Select(j => j.Name));
+
+                // Esc in the middle of dragging puts the card back.
+                var grip = Center(Grip(window, "Documents"), window);
+                window.MouseMove(grip);
+                window.MouseDown(grip, MouseButton.Left);
+                var first = Card(window, "Music").TranslatePoint(new Point(40, 5), window)!.Value;
+                window.MouseMove(new Point(grip.X, first.Y));
+                Pump();
+                Assert.Equal(["Documents", "Music", "Photos"], _app.Shell.Dashboard.Jobs.Select(j => j.Name));
+                window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+                window.MouseUp(new Point(grip.X, first.Y), MouseButton.Left);
+                Pump();
+
+                Assert.Equal(["Music", "Photos", "Documents"], _app.Shell.Dashboard.Jobs.Select(j => j.Name));
+                Assert.Equal(["Music", "Photos", "Documents"], _app.Services.Config.Jobs.Select(j => j.Name));
+                window.Close();
+            },
+            TestContext.Current.CancellationToken);
+    }
+
+    private static Border Grip(Window window, string job) =>
+        window.GetVisualDescendants().OfType<Border>()
+            .Single(b => b.Classes.Contains("drag-handle") && b.DataContext is JobCardViewModel card && card.Name == job);
+
+    private static Border Card(Window window, string job) =>
+        window.GetVisualDescendants().OfType<Border>()
+            .Single(b => b.Classes.Contains("card") && b.DataContext is JobCardViewModel card && card.Name == job);
+
+    private static Point Center(Control control, Window window) =>
+        control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)!.Value;
 
     private MainWindow Show()
     {
@@ -222,5 +301,9 @@ public sealed class FunctionalUiTests : IDisposable
         }
 
         public void RevealInFileManager(string path) => Revealed.Add(path);
+
+        public List<string> Opened { get; } = [];
+
+        public void OpenFile(string path) => Opened.Add(path);
     }
 }

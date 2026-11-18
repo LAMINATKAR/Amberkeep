@@ -17,7 +17,8 @@ public sealed class Scanner(IFileSystem fileSystem)
         string rootPath,
         ExclusionMatcher exclusions,
         IProgress<ScanProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IncludeFilter? include = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(rootPath);
         ArgumentNullException.ThrowIfNull(exclusions);
@@ -66,6 +67,14 @@ public sealed class Scanner(IFileSystem fileSystem)
                 }
 
                 var childPath = PathKey.Combine(relativePath, child.Name);
+
+                // Outside the selected folders and files: not part of the backup at all, like an excluded item. A folder
+                // above a selected item is listed, so that the selected item is reached.
+                if (include is not null && include.Classify(childPath, child.Kind == EntryKind.Directory) == IncludeScope.Outside)
+                {
+                    continue;
+                }
+
                 if (child.IsLink)
                 {
                     skipped.Add(new ScanIssue(childPath, "Symbolic link or junction – not followed."));

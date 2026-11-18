@@ -12,13 +12,15 @@ public sealed class DiffSummary
         int unchangedFiles,
         long bytesToCopy,
         long bytesToReplace,
-        long bytesToRemove)
+        long bytesToRemove,
+        long bytesToMove)
     {
         ByCategory = byCategory;
         UnchangedFiles = unchangedFiles;
         BytesToCopy = bytesToCopy;
         BytesToReplace = bytesToReplace;
         BytesToRemove = bytesToRemove;
+        BytesToMove = bytesToMove;
     }
 
     /// <summary>Counts of all items per category, selected or not.</summary>
@@ -34,6 +36,9 @@ public sealed class DiffSummary
 
     /// <summary>Bytes of target files that get removed.</summary>
     public long BytesToRemove { get; }
+
+    /// <summary>Bytes of files moved on the target instead of copied again; they need no space and no copying.</summary>
+    public long BytesToMove { get; }
 
     /// <summary>
     /// Free space needed on the target. With the archive on, nothing is freed (old versions are moved to the archive).
@@ -51,7 +56,7 @@ public sealed class DiffSummary
         ArgumentNullException.ThrowIfNull(isSelected);
 
         var byCategory = new Dictionary<DiffCategory, CategoryTotals>();
-        long copy = 0, replace = 0, remove = 0;
+        long copy = 0, replace = 0, remove = 0, move = 0;
 
         foreach (var item in items)
         {
@@ -79,9 +84,12 @@ public sealed class DiffSummary
                 case DiffCategory.Removed:
                     remove += item.Target!.Length;
                     break;
+                case DiffCategory.Moved:
+                    move += item.Source!.Length;
+                    break;
             }
         }
 
-        return new DiffSummary(byCategory, unchangedFiles, copy, replace, remove);
+        return new DiffSummary(byCategory, unchangedFiles, copy, replace, remove, move);
     }
 }

@@ -262,6 +262,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             lines.Add(job.Name);
             lines.Add($"    From: {Shown(job.SourcePath)}");
+            if (Format.Selection(job.IncludedPaths, shown: 10) is { } selection)
+            {
+                lines.Add($"    {selection}");
+            }
+
             lines.AddRange(job.Targets.Select(t => $"    To: {t.Name} – {Shown(t.LastKnownPath)}"));
             lines.Add($"    Runs: {Format.Trigger(job.Trigger) ?? "only when you start it"}");
             lines.Add(job.RequireApproval ? "    Asks before every run: yes" : "    Asks before every run: no – changes are applied without review");

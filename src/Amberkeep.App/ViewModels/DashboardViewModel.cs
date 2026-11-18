@@ -160,6 +160,8 @@ public sealed partial class DashboardViewModel : ObservableObject
                 return;
             }
 
+            // A refresh in the middle of dragging a card ends the drag; the saved order is shown.
+            _orderBeforeReorder = null;
             Jobs.Clear();
             foreach (var card in cards)
             {
@@ -178,6 +180,70 @@ public sealed partial class DashboardViewModel : ObservableObject
     }
 
     private int _refreshGeneration;
+
+    /// <summary>The order of the cards when dragging started; null when no card is being dragged.</summary>
+    private List<JobCardViewModel>? _orderBeforeReorder;
+
+    /// <summary>Moves a card while it is dragged. The new order is saved only by <see cref="CommitOrder"/>.</summary>
+    public void MoveJob(JobCardViewModel card, int toIndex)
+    {
+        var from = Jobs.IndexOf(card);
+        if (!CanEdit || from < 0 || toIndex < 0 || toIndex >= Jobs.Count || from == toIndex)
+        {
+            return;
+        }
+
+        _orderBeforeReorder ??= Jobs.ToList();
+        Jobs.Move(from, toIndex);
+    }
+
+    /// <summary>Saves the order of the cards after dragging. Run all, the tray menu and History follow it.</summary>
+    public void CommitOrder()
+    {
+        if (_orderBeforeReorder is not { } before)
+        {
+            return;
+        }
+
+        _orderBeforeReorder = null;
+        if (before.SequenceEqual(Jobs))
+        {
+            return;
+        }
+
+        var order = Jobs.Select(card => card.Job.Id).ToList();
+        try
+        {
+            shell.Services.Update(config => config.WithJobOrder(order));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            Restore(before);
+            _ = shell.Dialogs.ShowMessageAsync("Settings not saved", ex.Message);
+        }
+    }
+
+    /// <summary>Puts the cards back where they were before dragging (Esc, or the window lost focus).</summary>
+    public void CancelReorder()
+    {
+        if (_orderBeforeReorder is { } before)
+        {
+            _orderBeforeReorder = null;
+            Restore(before);
+        }
+    }
+
+    private void Restore(List<JobCardViewModel> order)
+    {
+        for (var i = 0; i < order.Count && i < Jobs.Count; i++)
+        {
+            var from = Jobs.IndexOf(order[i]);
+            if (from >= 0 && from != i)
+            {
+                Jobs.Move(from, i);
+            }
+        }
+    }
 
     [RelayCommand]
     private Task ReloadAsync() => RefreshAsync();
@@ -373,6 +439,9 @@ public sealed partial class JobCardViewModel : ObservableObject
 
     public string SourcePath => Job.SourcePath;
 
+    /// <summary>"Only: …" when the backup covers selected folders and files of the source; null for the whole folder.</summary>
+    public string? SelectionText => Format.Selection(Job.IncludedPaths);
+
     public ObservableCollection<TargetRowViewModel> Targets { get; }
 
     public bool HasTargets => Targets.Count > 0;
@@ -385,6 +454,10 @@ public sealed partial class JobCardViewModel : ObservableObject
     public string? TriggerText => Format.Trigger(Job.Trigger);
 
     public bool CanEdit => !_shell.Services.IsReadOnly;
+
+    /// <summary>The card is being dragged to a new place.</summary>
+    [ObservableProperty]
+    private bool _isDragging;
 
     [RelayCommand]
     private void Edit() => _shell.Show(new JobEditorViewModel(_shell, Job));

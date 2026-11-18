@@ -217,6 +217,35 @@ public sealed partial class DiffViewModel : ObservableObject
     internal void Reveal(string relativePath, bool onTarget) =>
         _shell.Dialogs.RevealInFileManager(PathKey.ToSystemPath(onTarget ? Diff.TargetPath : Diff.SourcePath, relativePath));
 
+    /// <summary>
+    /// Opens a file in its default application (e.g. to look at a photo). A program or script is opened only after
+    /// confirmation, so that nothing runs by an accidental double-click.
+    /// </summary>
+    internal async Task OpenFileAsync(string relativePath, bool onTarget)
+    {
+        var path = PathKey.ToSystemPath(onTarget ? Diff.TargetPath : Diff.SourcePath, relativePath);
+        if (!File.Exists(path))
+        {
+            await _shell.Dialogs.ShowMessageAsync(
+                "File not found",
+                $"{path} is no longer there. It has changed since the analysis.");
+            return;
+        }
+
+        if (FileTypes.IsProgram(path)
+            && !await _shell.Dialogs.ConfirmAsync(
+                "Run this program?",
+                $"{PathKey.GetName(relativePath)} is a program or script. Opening it runs it with your account's rights."
+                + (onTarget ? " It comes from the backup disk." : string.Empty),
+                "Run it",
+                destructive: true))
+        {
+            return;
+        }
+
+        _shell.Dialogs.OpenFile(path);
+    }
+
     [RelayCommand(CanExecute = nameof(CanRun))]
     private async Task RunAsync()
     {
@@ -253,19 +282,24 @@ public sealed partial class DiffViewModel : ObservableObject
     private void CollapseAll() => SetExpanded(expanded: false);
 
     [RelayCommand]
-    private void SelectDefaults()
+    private void SelectDefaults() => SetSelection(node => node.Item!.DefaultSelected);
+
+    /// <summary>Ticks every change the filters and the search show; hidden changes keep their state.</summary>
+    [RelayCommand]
+    private void SelectAll() => SetSelection(node => node.OwnMatches || node.OwnSelected);
+
+    /// <summary>Unticks every change the filters and the search show; hidden changes keep their state.</summary>
+    [RelayCommand]
+    private void SelectNone() => SetSelection(node => !node.OwnMatches && node.OwnSelected);
+
+    private void SetSelection(Func<DiffNodeViewModel, bool> selected)
     {
         foreach (var node in _allNodes.Where(n => n.IsOwnCheckable))
         {
-            node.OwnSelected = node.Item!.DefaultSelected;
+            node.OwnSelected = selected(node);
         }
 
         Recount(_root);
-        foreach (var node in _allNodes)
-        {
-            node.RaiseChecked();
-        }
-
         RecalculateSelection();
     }
 
@@ -296,6 +330,12 @@ public sealed partial class DiffViewModel : ObservableObject
         if (summary.BytesToRemove > 0)
         {
             parts.Add($"{Format.Bytes(summary.BytesToRemove)} to remove");
+        }
+
+        var moved = selected.Count(i => i.Category == DiffCategory.Moved);
+        if (moved > 0)
+        {
+            parts.Add($"{Format.Count(moved, "file", "files")} moved instead of copied");
         }
 
         parts.Add($"{Format.Bytes(summary.RequiredFreeSpace(_archiveEnabled))} free space needed");
@@ -403,6 +443,7 @@ public sealed partial class DiffViewModel : ObservableObject
         var own = node.Item is { } item
                   && enabled.Contains(item.Category)
                   && (search.Length == 0 || node.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
+        node.OwnMatches = own;
         node.Matches = own || any;
         return node.Matches;
     }
@@ -454,6 +495,7 @@ public sealed partial class DiffNodeViewModel : ObservableObject
     public string? Detail => Item switch
     {
         { Category: DiffCategory.Error } error => error.Message,
+        { Category: DiffCategory.Moved, Target: { } old } => $"from {old.RelativePath}",
         { Source: { } source, Target: { } target } when PathKey.GetName(source.RelativePath) != PathKey.GetName(target.RelativePath)
             => $"was {PathKey.GetName(target.RelativePath)}",
         _ => null,
@@ -465,7 +507,11 @@ public sealed partial class DiffNodeViewModel : ObservableObject
 
     internal int CheckedCount { get; private set; }
 
+    /// <summary>The row itself or something below it passes the filters and the search.</summary>
     internal bool Matches { get; set; } = true;
+
+    /// <summary>The row's own change passes the filters and the search.</summary>
+    internal bool OwnMatches { get; set; } = true;
 
     [ObservableProperty]
     private bool _isExpanded;
@@ -490,8 +536,38 @@ public sealed partial class DiffNodeViewModel : ObservableObject
 
     public bool ExistsOnTarget => TargetRelativePath is not null;
 
+    public bool IsFile => Item is { Kind: EntryKind.File };
+
+    public bool CanOpenSource => IsFile && ExistsOnSource;
+
+    public bool CanOpenTarget => IsFile && ExistsOnTarget;
+
     [RelayCommand]
     private void ToggleExpanded() => IsExpanded = !IsExpanded;
+
+    /// <summary>Double-click: a file opens (the source version, or the target one when it is only there), a folder expands or collapses.</summary>
+    [RelayCommand]
+    private async Task ActivateAsync()
+    {
+        if (CanOpenSource)
+        {
+            await _owner.OpenFileAsync(SourceRelativePath!, onTarget: false);
+        }
+        else if (CanOpenTarget)
+        {
+            await _owner.OpenFileAsync(TargetRelativePath!, onTarget: true);
+        }
+        else if (HasChildren)
+        {
+            IsExpanded = !IsExpanded;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanOpenSource))]
+    private Task OpenSourceAsync() => _owner.OpenFileAsync(SourceRelativePath!, onTarget: false);
+
+    [RelayCommand(CanExecute = nameof(CanOpenTarget))]
+    private Task OpenTargetAsync() => _owner.OpenFileAsync(TargetRelativePath!, onTarget: true);
 
     [RelayCommand(CanExecute = nameof(ExistsOnSource))]
     private void ShowInSource() => _owner.Reveal(SourceRelativePath!, onTarget: false);

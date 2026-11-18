@@ -106,6 +106,23 @@ internal sealed class OverlayDialogService(MainViewModel host, Func<TopLevel?> t
         }
     }
 
+    public void OpenFile(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        else
+        {
+            Start(new ProcessStartInfo(OperatingSystem.IsMacOS() ? "open" : "xdg-open") { ArgumentList = { path } });
+        }
+    }
+
     /// <summary>The nearest folder above <paramref name="path"/> that exists, or null.</summary>
     internal static string? FindExistingParent(string path)
     {

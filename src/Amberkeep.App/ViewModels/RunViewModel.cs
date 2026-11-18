@@ -27,14 +27,23 @@ public sealed record RunOutcome(
     string? ArchiveFolder,
     TimeSpan Duration)
 {
+    /// <summary>Files moved on the target instead of copied again.</summary>
+    public int MovedFiles { get; init; }
+
     public static RunOutcome From(ExecutionResult r) => new(
         r.Outcome, r.RefusedReason, r.CopiedFiles, r.ReplacedFiles, r.RemovedFiles, r.RemovedDirectories, r.CreatedDirectories,
-        r.RenamedEntries, r.UpdatedTimestamps, r.ArchivedFiles, r.CopiedBytes, r.Failures, r.Notes, r.ArchiveFolder, r.Duration);
+        r.RenamedEntries, r.UpdatedTimestamps, r.ArchivedFiles, r.CopiedBytes, r.Failures, r.Notes, r.ArchiveFolder, r.Duration)
+    {
+        MovedFiles = r.MovedFiles,
+    };
 
     public static RunOutcome From(RunRecord r) => new(
         r.Outcome, r.RefusedReason, r.CopiedFiles, r.ReplacedFiles, r.RemovedFiles, r.RemovedDirectories, r.CreatedDirectories,
         r.RenamedEntries, r.UpdatedTimestamps, r.ArchivedFiles, r.CopiedBytes, r.Failures, r.Notes, r.ArchiveFolder,
-        r.FinishedUtc - r.StartedUtc);
+        r.FinishedUtc - r.StartedUtc)
+    {
+        MovedFiles = r.MovedFiles,
+    };
 }
 
 public sealed record StatViewModel(string Label, string Value);
@@ -251,6 +260,7 @@ public sealed partial class RunViewModel : ObservableObject
         {
             ExecutionOperation.Remove => "Removing",
             ExecutionOperation.Rename => "Renaming",
+            ExecutionOperation.Move => "Moving",
             ExecutionOperation.CreateDirectory => "Creating folders",
             ExecutionOperation.Copy => "Copying",
             ExecutionOperation.UpdateTimestamp => "Updating times",

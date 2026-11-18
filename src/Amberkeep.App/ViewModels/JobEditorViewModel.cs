@@ -63,6 +63,8 @@ public sealed partial class JobEditorViewModel : ObservableObject
 
         _name = _original.Name;
         _sourcePath = _original.SourcePath;
+        _onlySelected = _original.IncludedPaths.Count > 0;
+        _includedPaths = _original.IncludedPaths;
         _compareContent = _original.CompareMode == CompareMode.Content;
         _caseSensitivity = CaseChoices.First(c => c.Value == _original.CaseSensitivity);
         _ignoreOneHourShift = _original.IgnoreOneHourShift;
@@ -86,6 +88,10 @@ public sealed partial class JobEditorViewModel : ObservableObject
         Targets = new ObservableCollection<EditorTargetViewModel>(
             _original.Targets.Select(t => new EditorTargetViewModel(t, isNew: false, takeOver: false)));
         Validate();
+        if (_onlySelected)
+        {
+            _ = LoadSourcePickerAsync();
+        }
     }
 
     public string Title => _isNew ? "New backup" : $"Edit '{_original.Name}'";
@@ -151,9 +157,85 @@ public sealed partial class JobEditorViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
     private bool _canSave;
 
+    /// <summary>Back up only the folders and files ticked in <see cref="SourcePicker"/>, not the whole source folder.</summary>
+    [ObservableProperty]
+    private bool _onlySelected;
+
+    /// <summary>The source folder as a tree to tick folders and files in; null until it is needed and the folder exists.</summary>
+    [ObservableProperty]
+    private SourcePickerViewModel? _sourcePicker;
+
+    // The selection as last seen by the tree (or as saved, before the tree is shown).
+    private IReadOnlyList<string> _includedPaths;
+
     partial void OnNameChanged(string value) => Touch();
 
-    partial void OnSourcePathChanged(string value) => Touch();
+    partial void OnSourcePathChanged(string value)
+    {
+        Touch();
+        if (OnlySelected)
+        {
+            _ = LoadSourcePickerAsync();
+        }
+    }
+
+    partial void OnOnlySelectedChanged(bool value)
+    {
+        Touch();
+        if (value && SourcePicker is null)
+        {
+            _ = LoadSourcePickerAsync();
+        }
+    }
+
+    partial void OnCaseSensitivityChanged(CaseChoice value)
+    {
+        if (OnlySelected)
+        {
+            _ = LoadSourcePickerAsync();
+        }
+    }
+
+    private int _pickerGeneration;
+
+    /// <summary>Shows the source folder as a tree (again, after the source or the letter-case rule changed).</summary>
+    public async Task LoadSourcePickerAsync()
+    {
+        // Typing a path starts a load per key; only the newest may show its tree.
+        var generation = ++_pickerGeneration;
+        var path = SourcePath.Trim();
+        var fileSystem = _shell.Services.FileSystem;
+        var exists = AppConfig.IsUsablePath(path) && await Task.Run(() => fileSystem.DirectoryExists(path));
+        if (generation != _pickerGeneration)
+        {
+            return;
+        }
+
+        if (SourcePicker is { } old)
+        {
+            old.Changed -= OnSelectionChanged;
+        }
+
+        if (!exists)
+        {
+            SourcePicker = null;
+            return;
+        }
+
+        var picker = new SourcePickerViewModel(fileSystem, path, _includedPaths, CaseSensitivity.Value.IsCaseSensitive());
+        picker.Changed += OnSelectionChanged;
+        SourcePicker = picker;
+        await picker.LoadAsync();
+    }
+
+    private void OnSelectionChanged(object? sender, EventArgs e)
+    {
+        if (sender is SourcePickerViewModel picker && ReferenceEquals(picker, SourcePicker))
+        {
+            _includedPaths = picker.GetSelection();
+            Touch();
+        }
+    }
 
     partial void OnGuardPercentChanged(decimal? value) => Validate();
 
@@ -168,6 +250,7 @@ public sealed partial class JobEditorViewModel : ObservableObject
     {
         Name = Name.Trim(),
         SourcePath = SourcePath.Trim(),
+        IncludedPaths = OnlySelected ? _includedPaths.ToList() : [],
         CompareMode = CompareContent ? CompareMode.Content : CompareMode.SizeAndTime,
         CaseSensitivity = CaseSensitivity.Value,
         IgnoreOneHourShift = IgnoreOneHourShift,
@@ -476,6 +559,11 @@ public sealed partial class JobEditorViewModel : ObservableObject
         }
 
         var errors = _shell.Services.Config.Validate(BuildJob(), _shell.Services.Store.BaseDirectory).ToList();
+        if (OnlySelected && _includedPaths.Count == 0)
+        {
+            errors.Add("Tick at least one folder or file to back up, or choose to back up everything in the folder.");
+        }
+
         if (_shell.Services.IsReadOnly)
         {
             errors.Add("Settings are read-only: " + _shell.Services.StartupMessage);
